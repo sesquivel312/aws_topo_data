@@ -170,24 +170,24 @@ def get_inetgw_data(networks, vpc):
 def get_peering_conn_data(networks, vpc):  # get vpc peering connections
     # todo determine how to represent multiple VPC's and the nodes w/in it
 
-    for connection in vpc.accepted_vpc_peering_connections.all():
-        accepter = connection.accepter_vpc_info['VpcId']
-        requester = connection.requester_vpc_info['VpcId']
-        pcx_attributes = {'id': connection.id, 'accepter_vpc_id': accepter,
+    for peer_conn in vpc.accepted_vpc_peering_connections.all():
+        accepter = peer_conn.accepter_vpc_info['VpcId']
+        requester = peer_conn.requester_vpc_info['VpcId']
+        pcx_attributes = {'id': peer_conn.id, 'accepter_vpc_id': accepter,
                           'requester_vpc_id': requester}
-        if requester in networks.keys():  # if the vpc already exists, add the peer conn node
-            networks[requester].add_node(connection.id, **pcx_attributes)
+        if requester in networks.keys():  # if the vpc exists in the networks dict
+            networks[requester].add_node(peer_conn.id, **pcx_attributes)
         else:  # create vpc first if it doesn't already exist
             networks[requester] = nx.Graph(vpc=requester)
-            networks[requester].add_node(connection.id, **pcx_attributes)
+            networks[requester].add_node(peer_conn.id, **pcx_attributes)
         if accepter not in networks.keys():  # similar for accepter end but assumed doesn't exist yet
             # logic reversed b/c I assume the requester is this VPC so graph probably exists, but
             # accepter graph may not yet have been created, I could put them int he same order w/the same logic
             # but the idea is this may be faster(?)
             networks[accepter] = nx.Graph(vpc=accepter)
-            networks[accepter].add_node(connection.id, **pcx_attributes)
+            networks[accepter].add_node(peer_conn.id, **pcx_attributes)
         else:
-            networks[accepter].add_node(connection.id, **pcx_attributes)
+            networks[accepter].add_node(peer_conn.id, **pcx_attributes)
 
 
 def get_router_data(networks, vpc):
@@ -201,9 +201,9 @@ def get_router_data(networks, vpc):
 
     # todo p1 adding edges for subnets assoc'd with main rtb to other rtbs, which isn't supposed to happen
 
-    network_obj = networks[vpc.id]
-    graph_data = network_obj.graph
-    network_node_data = network_obj.node
+    network_obj = networks[vpc.id]  # local ref to networkx graph object
+    graph_data = network_obj.graph  # local ref to the graph-data dict of the graph object
+    network_node_data = network_obj.node  # local ref to node-data dict of graph object
 
     for route_table in vpc.route_tables.all():
 
