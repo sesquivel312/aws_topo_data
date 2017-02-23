@@ -74,8 +74,14 @@ networkx.Graph:
       accepter_vpc_id: vpc ID of the accepting VPC
       requester_vpc_id: vpc ID of the requesting VPC
 
-    <route_table_id> (string)  << this is a route table - which I'm adding as a node in the network - i.e. a router
+    <route_table_id> (string: 'rtb-...')  << this is a route table - which I'm adding as a node in the network - i.e. a router
       main: None|<vpc-id>  << None or the vpc-id for which this rtb is the "main" rtb  << not sure what this will be useful for other than to verify that there is only 1 main route table
+      assoc_subnets: [snid1, ..., snidn]  (may be empty)
+      routes: [<route_data_dict>, ...]
+        route_data_dict:
+          gw_id: name/id of the gateway << can be one of sevaral types: igw, vgw, pcx, natgw, instance-if (when a nat instance)
+          destination: [CIDR] | pfx-list-id
+          state: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
 
   edge: (dict) (also known as adj)
     <route_table_id>: (dict) of adjacent nodes, built using route tables

@@ -351,7 +351,7 @@ def populate_other_edges(network_obj):
     # I am still working through handling the routing data
     # it should probably be separated completely rather than putting a bunch of helper fuctions into the
     # get_router_data method
-    
+
     # for ea node in nodes
         # if it's a route table then
             # for each route in it's route list
