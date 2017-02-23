@@ -111,6 +111,30 @@ def get_vpcs_and_secgroups(aws_session=None, region_name='us-west-2'):
     return vpcs, sec_groups
 
 
+def get_node_type(node_name):
+    """
+    helper function returning the type of node based on the node name/id
+
+    :param node_name: string - name/id of node
+    :return: node_type: string = inet_gw | peer_conn | router | subnet | vpn_gw |
+    """
+
+    prefix = node_name.split('-')[0]
+
+    if prefix == 'subnet':
+        return 'subnet'
+    elif prefix == 'rtb':
+        return 'router'
+    elif prefix == 'pcx':
+        return 'peer_con'
+    elif prefix == 'igw':
+        return 'inet_gw'
+    elif prefix == 'vgw':
+        return 'vpn_gw'
+    else:
+        return None
+
+
 def get_subnet_data(networks, vpc):
     """
     enumerate subnets in a given VPC, subsequently extract security groups (per subnet) and install in a dict of
@@ -190,7 +214,7 @@ def get_peering_conn_data(networks, vpc):  # get vpc peering connections
             networks[accepter].add_node(peer_conn.id, **pcx_attributes)
 
 
-def get_router_data(networks, vpc):
+def get_router_data2(networks, vpc):  # todo this is the old version, remove when reactor complete
     """
     collect route data & add edges based on them
 
@@ -204,6 +228,13 @@ def get_router_data(networks, vpc):
     network_obj = networks[vpc.id]  # local ref to networkx graph object
     graph_data = network_obj.graph  # local ref to the graph-data dict of the graph object
     network_node_data = network_obj.node  # local ref to node-data dict of graph object
+
+    # for each route table in the network/vpc
+        # collect the following data:
+        # id
+
+        # for each assoc in the curr route table
+
 
     for route_table in vpc.route_tables.all():
 
@@ -252,6 +283,114 @@ def get_router_data(networks, vpc):
                 network_obj.add_edge(curr_rtb_id, route.vpc_peering_connection_id)
 
 
+def populate_router_data(vpc, network_obj):
+
+    graph_data = network_obj.graph  # local ref to the graph-data dict of the graph object
+
+    for rtb in vpc.route_tables.all():
+        network_obj.add_node(rtb.id)  # add the route table to the graph/networkx object
+        rtb_data = network_obj.node[rtb.id]  # short name for data dict assoc w/this route table
+        rtb_data['assoc_subnets'] = []  # init assoc subnet list
+        rtb_data['main'] = False  # init the flag indicating this rtb is main table for vpc
+
+        for assoc in rtb.associations_attribute:  #gather associated subnets & determine if main
+            subnet_id = assoc.get('SubnetId')  # None or subnet-id string
+            main_flag = assoc.get('Main')  # if true this rtb is the "main" rtb for the vpc
+
+            if not main_flag and subnet_id:  # this is an asoc'ed subnet, add the
+                rtb_data['assoc_subnets'].append(subnet_id)
+            elif main_flag and not subnet_id: # this is the main rtb for this vpc
+                rtb_data['main'] = True
+                if not graph_data['main_route_table']:  # if main route table @ graph level is empty, set to curr value
+                    graph_data['main_route_table'] = rtb.id
+                elif graph_data['main_route_table'] == rtb.id:  # main rtb @ graph lvl set but curr rtb_id is same value
+                    print '*** found more than one instance of the same route table indicated as main'
+                else:  # we've found 2+ main route tables, which shouldn't be (?)
+                    print '**** found two different main route tables: ' \
+                          'previous: {}, curr: {}'.format(rtb.id, graph_data['main_route_table'])
+            else:  #  not main & no subnet OR main and subnet are nonsensical combo's alert (at least AFAIK)
+                print '** Got strange association info.  ' \
+                      'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc.id, rtb.id, main_flag, subnet_id)
+
+            routes = rtb_data['routes'] = []
+
+            for route in rtb.routes_attribute:
+                dest_cidr = route.get('DestinationCidrBlock')
+                dest_pfx = route.get('DestinationPrefixListId')
+                gw_id = route.get('GatewayId') # if this is local we don't care about it
+                inst_id = route.get('InstanceId')
+                pcx_id = route.get('VpcPeeringConnectionId')
+                nat_gw = route.get('NatGatewayId')
+                state = route.get('State')
+                origin = route.get('Origin')
+                egress_gw = route.get('EgressOnlyGatewayId')
+
+                routes.append({'dest_cidr': dest_cidr, 'dest_pfx': dest_pfx,
+                               'gw_id': gw_id, 'inst_id': inst_id,
+                               'pcx_id': pcx_id, 'nat_gw': nat_gw,
+                               'state': state, 'origin': origin,
+                               'egress_gw': egress_gw})
+
+
+def populate_subnet_edges(network_obj):
+    # add the explicitly associated subnets first, updating the assoc_route_table data item as you go
+    nodes = network_obj.node  # local ref to dict of node data
+    for curr_node in nodes:
+        if curr_node.startswith('rtb-'):  # only interested in router nodes
+            rtb_id = curr_node
+            subnets = nodes[curr_node]['assoc_subnets']
+            if len(subnets):  # verify there are subnets in the list
+                for subnet in subnets:
+                    network_obj.add_edge(rtb_id, subnet)
+
+
+def populate_other_edges(network_obj):
+    nodes = network_obj.node
+
+    # todo P1 start below
+    # I am still working through handling the routing data
+    # it should probably be separated completely rather than putting a bunch of helper fuctions into the
+    # get_router_data method
+    
+    # for ea node in nodes
+        # if it's a route table then
+            # for each route in it's route list
+                # add an edge between the current route table and the route's gw-type
+                # right now I can only process some types of gateways - i.e. igw, vgw, pcx
+                # need to add handling for natgws, nat-instances, egress-only-igw's
+                # also detemrine what a "destination prefix list is" - something to do w/an AWS service?
+
+
+
+    # for route in route_table.routes:
+    #     if route.gateway_id:  # more than one type and, I believe, they are mutex with other "gateway" like objects
+    #         if route.gateway_id.startswith('igw-'):  # got an internet gw
+    #             network_obj.add_edge(curr_rtb_id, route.gateway_id)
+    #         elif route.gateway_id.startswith('vgw-'):  # got a vpn gateway
+    #             network_obj.add_edge(curr_rtb_id, route.gateway_id)
+    #     if route.vpc_peering_connection_id:  # find the vpc peering connections
+    #         network_obj.add_edge(curr_rtb_id, route.vpc_peering_connection_id)
+
+
+def get_router_data(networks, vpc):
+    """
+    collect route data & add edges based on them
+
+    :param networks: dict of networkx graph objects - identified by vpc-id
+    :param vpc: boto3.ec2.vpc object (one, not an iterable of many)
+    :return:
+    """
+
+    network_obj = networks[vpc.id]  # local ref to networkx graph object
+
+    populate_router_data(vpc, network_obj)  # add data about route tables first (use this for edge finding, etc.)
+
+    # loop over router associations e.g. connected subnets and add edges as needed
+    populate_subnet_edges(network_obj)
+
+    # loop over routes in route tables and add edges as appropriate (e.g. igw, pcx. etc)
+    populate_other_edges(network_obj)
+
 
 def build_nets(networks, vpcs, aws_session=None):
     """
@@ -264,6 +403,9 @@ def build_nets(networks, vpcs, aws_session=None):
     :param vpcs: iterable of boto3 vpc objects
     :return: n/a
     """
+
+    # todo verify correct handling of VPN gateways
+    # todo get NACL's
 
     for vpc in vpcs:
 

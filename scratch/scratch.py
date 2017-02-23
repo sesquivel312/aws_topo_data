@@ -1,7 +1,6 @@
-dict = {'k1':'v1', 'k2':'v2'}
+astring = ''
 
-print dict
-
-print dict.get('k3')
-
-print dict
+if astring:
+    print 'yes'
+else:
+    print 'no'
