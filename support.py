@@ -332,7 +332,7 @@ def populate_router_data(vpc, network_obj):
                                'egress_gw': egress_gw})
 
 
-def populate_subnet_edges(network_obj):
+def add_subnet_edges(network_obj):
     # add the explicitly associated subnets first, updating the assoc_route_table data item as you go
     nodes = network_obj.node  # local ref to dict of node data
     for curr_node in nodes:
@@ -344,22 +344,19 @@ def populate_subnet_edges(network_obj):
                     network_obj.add_edge(rtb_id, subnet)
 
 
-def populate_other_edges(network_obj):
+def add_other_edges(network_obj):
     nodes = network_obj.node
 
     # todo P1 start below
-    # I am still working through handling the routing data
-    # it should probably be separated completely rather than putting a bunch of helper fuctions into the
-    # get_router_data method
 
-    # for ea node in nodes
-        # if it's a route table then
-            # for each route in it's route list
-                # add an edge between the current route table and the route's gw-type
+    for node in nodes:  # for ea node in nodes
+        if get_node_type(node) == 'router':
+            route_list = node['routes']
+            for route in route_list:
+                network_obj.add_edge(node, route['gw_id'])  # add an edge between the current route table and the route's gw-type
                 # right now I can only process some types of gateways - i.e. igw, vgw, pcx
                 # need to add handling for natgws, nat-instances, egress-only-igw's
                 # also detemrine what a "destination prefix list is" - something to do w/an AWS service?
-
 
 
     # for route in route_table.routes:
@@ -370,26 +367,6 @@ def populate_other_edges(network_obj):
     #             network_obj.add_edge(curr_rtb_id, route.gateway_id)
     #     if route.vpc_peering_connection_id:  # find the vpc peering connections
     #         network_obj.add_edge(curr_rtb_id, route.vpc_peering_connection_id)
-
-
-def get_router_data(networks, vpc):
-    """
-    collect route data & add edges based on them
-
-    :param networks: dict of networkx graph objects - identified by vpc-id
-    :param vpc: boto3.ec2.vpc object (one, not an iterable of many)
-    :return:
-    """
-
-    network_obj = networks[vpc.id]  # local ref to networkx graph object
-
-    populate_router_data(vpc, network_obj)  # add data about route tables first (use this for edge finding, etc.)
-
-    # loop over router associations e.g. connected subnets and add edges as needed
-    populate_subnet_edges(network_obj)
-
-    # loop over routes in route tables and add edges as appropriate (e.g. igw, pcx. etc)
-    populate_other_edges(network_obj)
 
 
 def build_nets(networks, vpcs, aws_session=None):
@@ -414,7 +391,7 @@ def build_nets(networks, vpcs, aws_session=None):
         vpc_attribs = {'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
-        networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
+        network_obj = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
 
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
@@ -429,7 +406,11 @@ def build_nets(networks, vpcs, aws_session=None):
 
         # run routers last as that function currently depends on the other nodes existing in order to
         # add edges - may also want to completely separate edge adds from node adds
-        get_router_data(networks, vpc)  # add route tables to graph and add edges between rtb's, subnets, igw's & vgw's
+        populate_router_data(vpc, network_obj)  # add route tables to graph and add edges between rtb's, subnets, igw's & vgw's
+
+        add_subnet_edges(network_obj)
+
+        add_other_edges(network_obj)
 
 
 # todo also collect network acl data
