@@ -135,6 +135,30 @@ def get_node_type(node_name):
         return None
 
 
+def create_gateway_name(route_dict):
+    """
+    construct a gateway "name" from a dict of route attributes
+
+    AWS routes have a number of attributes associated w/them. For the moment I can't tell
+    which are mutex w/which-others.  E.g. if there's a value in the vpc peer conn id field must
+    the gw-id field be None.  Rather than try to figure that out I'll construct a name from the
+    various attributes by contactenting the route-attribute values into a single string.  If
+    things go well there will only ever be one string that makes up the resulting gateway-name.
+    If they don't go well, then the name will be something strange like vpx-abc123:igw-def321.
+
+    Currently skipping any ??? == 'local'
+
+    :param route_dict: dictionary of route attributes (see func populate_router_data)
+    :return: gw_name: string
+    """
+
+    # get the non None values from the route attribute dict, that matter in identifying the gw "name"
+    name_components = [v for k, v in route_dict.iteritems() if k in
+                       ['gw_id', 'inst_id', 'pcx_id', 'nat_gw', 'egress_gw'] and v]
+
+    return ':'.join(name_components)
+
+
 def get_subnet_data(networks, vpc):
     """
     enumerate subnets in a given VPC, subsequently extract security groups (per subnet) and install in a dict of
@@ -193,6 +217,8 @@ def get_inetgw_data(networks, vpc):
 
 def get_peering_conn_data(networks, vpc):  # get vpc peering connections
     # todo determine how to represent multiple VPC's and the nodes w/in it
+    # todo P2 verify peer conn are identified
+    # todo P2 remove dependence on adding nodes only for acceptor vpc - e.g. skip if see same pcx in later vpc
 
     for peer_conn in vpc.accepted_vpc_peering_connections.all():
         accepter = peer_conn.accepter_vpc_info['VpcId']
@@ -212,75 +238,6 @@ def get_peering_conn_data(networks, vpc):  # get vpc peering connections
             networks[accepter].add_node(peer_conn.id, **pcx_attributes)
         else:
             networks[accepter].add_node(peer_conn.id, **pcx_attributes)
-
-
-def get_router_data2(networks, vpc):  # todo this is the old version, remove when reactor complete
-    """
-    collect route data & add edges based on them
-
-    :param networks: dict of networkx graph objects - identified by vpc-id
-    :param vpc: boto3.ec2.vpc object (one, not an iterable of many)
-    :return:
-    """
-
-    # todo p1 adding edges for subnets assoc'd with main rtb to other rtbs, which isn't supposed to happen
-
-    network_obj = networks[vpc.id]  # local ref to networkx graph object
-    graph_data = network_obj.graph  # local ref to the graph-data dict of the graph object
-    network_node_data = network_obj.node  # local ref to node-data dict of graph object
-
-    # for each route table in the network/vpc
-        # collect the following data:
-        # id
-
-        # for each assoc in the curr route table
-
-
-    for route_table in vpc.route_tables.all():
-
-        curr_rtb_id = route_table.id
-        network_obj.add_node(curr_rtb_id)  # add route table node
-
-        for assoc in route_table.associations_attribute:  # the association list contains the associated subnets
-            # todo: need to ensure I'm getting the right subnets
-
-            if assoc['Main']:  # this is the main RTB for this VPC
-                # check to see if the main RTB has been set before
-                # if not, set it
-                if not graph_data['main_route_table']:
-                    # graph_data['main_route_table'] = curr_rtb_id
-                    graph_data['main_route_table'] = curr_rtb_id
-                else:  # it was, alert and exit
-                    sys.exit('*** Found a second route table marked main. '
-                             'Previous: {}, Second: {}'.format(graph_data['main_route_table'], curr_rtb_id))
-
-            # if there's a subnet, add edge between the subnet and router,
-            # and update it's data to reflect that it's associated w/a rtb
-            snid = assoc.get('SubnetId')  # association for main will not return a subnet id
-
-            if snid:
-                network_obj.add_edge(curr_rtb_id, snid)
-                network_node_data[snid]['assoc_route_table'] = curr_rtb_id
-
-        # find all the subnets associated with the main route table
-        # first, loop over nodes in network data dict
-        for curr_node, curr_data in network_node_data.items():
-            if curr_node.startswith('subnet'):  # pick out the subnet nodes
-                if not curr_data['assoc_route_table']:  # when None this subnet is assoc implicitly with vpc main rtb
-                    # udpate it's 'assoc_route_table' to match reality
-                    curr_data['assoc_route_table'] = graph_data['main_route_table']
-                    network_obj.add_edge(curr_node, graph_data['main_route_table'])
-
-        # find the various route target objects in this table and
-        # add edge between route table & target
-        for route in route_table.routes:
-            if route.gateway_id:  # more than one type and, I believe, they are mutex with other "gateway" like objects
-                if route.gateway_id.startswith('igw-'):  # got an internet gw
-                    network_obj.add_edge(curr_rtb_id, route.gateway_id)
-                elif route.gateway_id.startswith('vgw-'):  # got a vpn gateway
-                    network_obj.add_edge(curr_rtb_id, route.gateway_id)
-            if route.vpc_peering_connection_id:  # find the vpc peering connections
-                network_obj.add_edge(curr_rtb_id, route.vpc_peering_connection_id)
 
 
 def populate_router_data(vpc, network_obj):
@@ -345,29 +302,23 @@ def add_subnet_edges(network_obj):
 
 
 def add_other_edges(network_obj):
-    nodes = network_obj.node
+    node_dict = network_obj.node
 
-    # todo P1 start below
+    # todo P2 still adding nodes to node dict at the .add_edge() call - why
 
-    for node in nodes:  # for ea node in nodes
-        if get_node_type(node) == 'router':
-            route_list = node['routes']
+
+    for curr_node in node_dict:  # for ea node in nodes
+        if get_node_type(curr_node) == 'router':  # if it's a router
+            route_list = node_dict[curr_node]['routes']  # get its routes
             for route in route_list:
-                network_obj.add_edge(node, route['gw_id'])  # add an edge between the current route table and the route's gw-type
-                # right now I can only process some types of gateways - i
-                # .e. igw, vgw, pcx
-                # need to add handling for natgws, nat-instances, egress-only-igw's
-                # also detemrine what a "destination prefix list is" - something to do w/an AWS service?
-
-
-    # for route in route_table.routes:
-    #     if route.gateway_id:  # more than one type and, I believe, they are mutex with other "gateway" like objects
-    #         if route.gateway_id.startswith('igw-'):  # got an internet gw
-    #             network_obj.add_edge(curr_rtb_id, route.gateway_id)
-    #         elif route.gateway_id.startswith('vgw-'):  # got a vpn gateway
-    #             network_obj.add_edge(curr_rtb_id, route.gateway_id)
-    #     if route.vpc_peering_connection_id:  # find the vpc peering connections
-    #         network_obj.add_edge(curr_rtb_id, route.vpc_peering_connection_id)
+                gw_name = create_gateway_name(route)# create a gw "name" from the route's gw/nh attributes
+                if gw_name == 'local':
+                    print '*** gw name is "local" - skipping'
+                elif gw_name not in node_dict:  # if the gw "name" is NOT in the node dict
+                    # there's a problem, print an error and do nothing
+                    print '*** Cannot add a new node to the network at this point: {}'.format(gw_name)
+                else: # else add an edge
+                    network_obj.add_edge(curr_node, route['gw_id'])  # +edge: current rtb and the gw (next hop)
 
 
 def build_nets(networks, vpcs, aws_session=None):
@@ -402,6 +353,8 @@ def build_nets(networks, vpcs, aws_session=None):
         get_vpngw_data(networks, vpc, aws_session)  # find the vpn gw's and add to networkx graph
 
         get_inetgw_data(networks, vpc)  # find internet gw's and add to network
+
+        get_nat_gateways()
 
         get_peering_conn_data(networks, vpc)
 

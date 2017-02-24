@@ -80,7 +80,11 @@ networkx.Graph:
       routes: [<route_data_dict>, ...]
         route_data_dict:
           gw_id: name/id of the gateway << can be one of sevaral types: igw, vgw, pcx, natgw, instance-if (when a nat instance)
-          destination: [CIDR] | pfx-list-id
+          dest_cidr:
+          dest_pfx: << prefix list
+          nat_gw:
+          state:
+          egress_gw: << if an egress ONLY gw
           origin: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
 
   edge: (dict) (also known as adj)

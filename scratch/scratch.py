@@ -1,6 +1,6 @@
-astring = ''
+dict = {'k1':'v1', 'k2':'v2'}
 
-if astring:
-    print 'yes'
-else:
-    print 'no'
+name_components = [s for s in dict.itervalues() if s]
+
+print ':'.join(name_components)
+
