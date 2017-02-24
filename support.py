@@ -354,7 +354,8 @@ def add_other_edges(network_obj):
             route_list = node['routes']
             for route in route_list:
                 network_obj.add_edge(node, route['gw_id'])  # add an edge between the current route table and the route's gw-type
-                # right now I can only process some types of gateways - i.e. igw, vgw, pcx
+                # right now I can only process some types of gateways - i
+                # .e. igw, vgw, pcx
                 # need to add handling for natgws, nat-instances, egress-only-igw's
                 # also detemrine what a "destination prefix list is" - something to do w/an AWS service?
 

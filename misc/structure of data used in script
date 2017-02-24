@@ -81,7 +81,7 @@ networkx.Graph:
         route_data_dict:
           gw_id: name/id of the gateway << can be one of sevaral types: igw, vgw, pcx, natgw, instance-if (when a nat instance)
           destination: [CIDR] | pfx-list-id
-          state: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
+          origin: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
 
   edge: (dict) (also known as adj)
     <route_table_id>: (dict) of adjacent nodes, built using route tables
