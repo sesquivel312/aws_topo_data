@@ -53,15 +53,13 @@ def get_args():
     parser.add_argument('--output-dir', help='Path output is written to, current dir if not specified')
     parser.add_argument('--export-network-to-yaml', help='flag indicating network data should be exported to a YAML '
                                                          'file in the directory indicated by --output-dir (or current '
-                                                         'directory if not specified',action='store_true')
-    parser.add_argument('--csv-file', help='Export rules to csv formatted file named by the value to this '
-                                                       'argument')
+                                                         'directory if not specified', action='store_true')
+    parser.add_argument('--csv-file', help='Export rules to csv formatted file named by the value to this argument')
 
     return parser.parse_args()
 
 
 def get_aws_api_credentials():
-
     key_id = getpass.getpass('Enter key ID: ')
     key = getpass.getpass('Enter key: ')
 
@@ -86,7 +84,6 @@ def get_current_us_regions(aws_session=None):
 
 
 def get_vpcs_and_secgroups(aws_session=None, region_name='us-west-2'):
-
     """
     retrieve VPC's and Subnets from aws account
 
@@ -116,7 +113,7 @@ def get_node_type(node_name):
     helper function returning the type of node based on the node name/id
 
     :param node_name: string - name/id of node
-    :return: node_type: string = inet_gw | peer_conn | router | subnet | vpn_gw |
+    :return: node_type: string = inet_gw | peer_conn | router | subnet | vpn_gw | nat_gw
     """
 
     prefix = node_name.split('-')[0]
@@ -131,6 +128,8 @@ def get_node_type(node_name):
         return 'inet_gw'
     elif prefix == 'vgw':
         return 'vpn_gw'
+    elif prefix == 'nat':
+        return 'nat_gw'
     else:
         return None
 
@@ -201,13 +200,36 @@ def get_vpngw_data(networks, vpc, aws_session):
     # must use ec2.client in order to access vpn gateway info
     ec2_client = aws_session.client('ec2')
     for vpngw in ec2_client.describe_vpn_gateways(Filters=[{'Name': 'attachment.vpc-id',
-                                                          'Values': [vpc.id]}])['VpnGateways']:
+                                                            'Values': [vpc.id]}])['VpnGateways']:
         # get vpn gw's attached to this VPC and add them as nodes
         # want the availability zone but it's not always available
-        # todo: research using .get() method to access avail zone and avoid exception
         vpngw_attributes = {'id': vpngw['VpnGatewayId'], 'state': vpngw['State']}  # want avail zone, but not always
         #                                                                            returned
         networks[vpc.id].add_node(vpngw['VpnGatewayId'], **vpngw_attributes)
+
+
+def get_nat_gateways(network_obj, vpc_id, aws_session):
+    """
+    add nat gateway nodes to network, along w/any pertinent meta data
+
+    NB: using session b/c I can't find any reference to nat gateways in the ec2-resource docs
+
+    :param network_obj: a networkx graph representing the network topo in a single VPC
+    :param aws_session: a boto3 session object
+    :return:
+    """
+
+    # create the client from session
+    ec2_client = aws_session.client('ec2')
+
+    # get natgw iterable for this vpc  (list of dicts
+    natgw_dict = ec2_client.describe_nat_gateways(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id, ]}])
+    natgw_list = natgw_dict['NatGateways']  # list of dicts containing attributes of a given nat gateway
+
+    # loop over and add as nodes, collecting desired metadata
+    for gateway in natgw_list:
+        attributes = {'state': gateway['State']}
+        network_obj.add_node(gateway['NatGatewayId'], **attributes)
 
 
 def get_inetgw_data(networks, vpc):
@@ -215,33 +237,36 @@ def get_inetgw_data(networks, vpc):
         networks[vpc.id].add_node(gateway.id)
 
 
-def get_peering_conn_data(networks, vpc):  # get vpc peering connections
-    # todo determine how to represent multiple VPC's and the nodes w/in it
-    # todo P2 verify peer conn are identified
-    # todo P2 remove dependence on adding nodes only for acceptor vpc - e.g. skip if see same pcx in later vpc
+def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
+    # todo determine how to represent multiple VPC's and the nodes w/in it - topo per account vs per vpc?
+    # todo P2 verify collecting both accepter and requester vpc-id's and not overwriting data (check netwokx doco)
 
-    for peer_conn in vpc.accepted_vpc_peering_connections.all():
-        accepter = peer_conn.accepter_vpc_info['VpcId']
-        requester = peer_conn.requester_vpc_info['VpcId']
-        pcx_attributes = {'id': peer_conn.id, 'accepter_vpc_id': accepter,
-                          'requester_vpc_id': requester}
-        if requester in networks.keys():  # if the vpc exists in the networks dict
-            networks[requester].add_node(peer_conn.id, **pcx_attributes)
-        else:  # create vpc first if it doesn't already exist
-            networks[requester] = nx.Graph(vpc=requester)
-            networks[requester].add_node(peer_conn.id, **pcx_attributes)
-        if accepter not in networks.keys():  # similar for accepter end but assumed doesn't exist yet
-            # logic reversed b/c I assume the requester is this VPC so graph probably exists, but
-            # accepter graph may not yet have been created, I could put them int he same order w/the same logic
-            # but the idea is this may be faster(?)
-            networks[accepter] = nx.Graph(vpc=accepter)
-            networks[accepter].add_node(peer_conn.id, **pcx_attributes)
+
+    nodes = network_object.node
+
+    # add "requested" pcx'es
+    for peer in vpc.requested_vpc_peering_connections.all():
+        if peer.id not in nodes:  # if the pcx ID is not a key in the nodes dict, i.e. doesn't yet exist, add it
+            requester_info = peer.requester_vpc_info  # reduce the # of dict sub-references typed by hand
+            requester_vpc_id = requester_info['VpcId']
+            pcx_attributes = {'requester_vpc_id': requester_vpc_id, 'status': peer.status}  # status is a dict
+            network_object.add_node(peer.id, **pcx_attributes)
         else:
-            networks[accepter].add_node(peer_conn.id, **pcx_attributes)
+            # todo handle tihs correctly (effectively not handling now)
+            print '*** attempting to add an already existing pcx: {}'.format(peer.id)
+
+    # add "accepted" pcx'es
+    for peer in vpc.accepted_vpc_peering_connections.all():
+        if peer.id not in nodes:  # if the pcx ID is not a key in the nodes dict, i.e. doesn't yet exist, add it
+            accepter_info = peer.accepter_vpc_info  # reduce the # of dict sub-references typed by hand
+            accepter_vpc_id = accepter_info['VpcId']
+            pcx_attributes = {'accepter_vpc_id': accepter_vpc_id, 'status': peer.status}  # status is a dict
+            network_object.add_node(peer.id, **pcx_attributes)
+        else:
+            print '*** attempting to add an already existing pcx: {}'.format(peer.id)
 
 
 def populate_router_data(vpc, network_obj):
-
     graph_data = network_obj.graph  # local ref to the graph-data dict of the graph object
 
     for rtb in vpc.route_tables.all():
@@ -250,13 +275,13 @@ def populate_router_data(vpc, network_obj):
         rtb_data['assoc_subnets'] = []  # init assoc subnet list
         rtb_data['main'] = False  # init the flag indicating this rtb is main table for vpc
 
-        for assoc in rtb.associations_attribute:  #gather associated subnets & determine if main
+        for assoc in rtb.associations_attribute:  # gather associated subnets & determine if main
             subnet_id = assoc.get('SubnetId')  # None or subnet-id string
             main_flag = assoc.get('Main')  # if true this rtb is the "main" rtb for the vpc
 
             if not main_flag and subnet_id:  # this is an asoc'ed subnet, add the
                 rtb_data['assoc_subnets'].append(subnet_id)
-            elif main_flag and not subnet_id: # this is the main rtb for this vpc
+            elif main_flag and not subnet_id:  # this is the main rtb for this vpc
                 rtb_data['main'] = True
                 if not graph_data['main_route_table']:  # if main route table @ graph level is empty, set to curr value
                     graph_data['main_route_table'] = rtb.id
@@ -265,7 +290,7 @@ def populate_router_data(vpc, network_obj):
                 else:  # we've found 2+ main route tables, which shouldn't be (?)
                     print '**** found two different main route tables: ' \
                           'previous: {}, curr: {}'.format(rtb.id, graph_data['main_route_table'])
-            else:  #  not main & no subnet OR main and subnet are nonsensical combo's alert (at least AFAIK)
+            else:  # not main & no subnet OR main and subnet are nonsensical combo's alert (at least AFAIK)
                 print '** Got strange association info.  ' \
                       'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc.id, rtb.id, main_flag, subnet_id)
 
@@ -274,7 +299,7 @@ def populate_router_data(vpc, network_obj):
             for route in rtb.routes_attribute:
                 dest_cidr = route.get('DestinationCidrBlock')
                 dest_pfx = route.get('DestinationPrefixListId')
-                gw_id = route.get('GatewayId') # if this is local we don't care about it
+                gw_id = route.get('GatewayId')  # if this is local we don't care about it
                 inst_id = route.get('InstanceId')
                 pcx_id = route.get('VpcPeeringConnectionId')
                 nat_gw = route.get('NatGatewayId')
@@ -293,7 +318,7 @@ def add_subnet_edges(network_obj):
     # add the explicitly associated subnets first, updating the assoc_route_table data item as you go
     nodes = network_obj.node  # local ref to dict of node data
     for curr_node in nodes:
-        if curr_node.startswith('rtb-'):  # only interested in router nodes
+        if get_node_type(curr_node) == 'router':  # only interested in router nodes
             rtb_id = curr_node
             subnets = nodes[curr_node]['assoc_subnets']
             if len(subnets):  # verify there are subnets in the list
@@ -301,24 +326,32 @@ def add_subnet_edges(network_obj):
                     network_obj.add_edge(rtb_id, subnet)
 
 
-def add_other_edges(network_obj):
+def add_non_peer_conn_edges(network_obj):
+    """
+    add connections between route tables and gateway objects OTHER THAN VPC Peering Connections
+
+    not adding the edges between router and pcx here b/c want to collect all pcx "instances" first, which requires
+    looping over all the VPC's.  Put another way, pcx'es can be thought of as being "outside" any VPC so we can't add
+    edges to them until we have all of them accounted for
+    :param network_obj: a networkx graph object containing node data, i.e. topology data
+    :return:
+    """
     node_dict = network_obj.node
-
-    # todo P2 still adding nodes to node dict at the .add_edge() call - why
-
 
     for curr_node in node_dict:  # for ea node in nodes
         if get_node_type(curr_node) == 'router':  # if it's a router
             route_list = node_dict[curr_node]['routes']  # get its routes
             for route in route_list:
-                gw_name = create_gateway_name(route)# create a gw "name" from the route's gw/nh attributes
+                gw_name = create_gateway_name(route)  # create a gw "name" from the route's gw/nh attributes
                 if gw_name == 'local':
                     print '*** gw name is "local" - skipping'
+                elif gw_name.startswith('pcx'):
+                    print '*** not adding pcx edges in "add_other_edge" func'  # eventually just skip pcx'es
                 elif gw_name not in node_dict:  # if the gw "name" is NOT in the node dict
                     # there's a problem, print an error and do nothing
                     print '*** Cannot add a new node to the network at this point: {}'.format(gw_name)
-                else: # else add an edge
-                    network_obj.add_edge(curr_node, route['gw_id'])  # +edge: current rtb and the gw (next hop)
+                else:  # else add an edge
+                    network_obj.add_edge(curr_node, gw_name)  # +edge: current rtb and the gw (next hop)
 
 
 def build_nets(networks, vpcs, aws_session=None):
@@ -330,16 +363,15 @@ def build_nets(networks, vpcs, aws_session=None):
 
     :param networks: dict of networkx network objects
     :param vpcs: iterable of boto3 vpc objects
+    :param aws_session: boto3 session object
     :return: n/a
     """
 
     # todo verify correct handling of VPN gateways
-    # todo get NACL's
+    # todo P3 get NACL's
 
     for vpc in vpcs:
-
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
-        # todo add tags to attributes - but be ware of how they are handled by ??? networkx, or maybe something else?
         vpc_attribs = {'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
@@ -354,23 +386,23 @@ def build_nets(networks, vpcs, aws_session=None):
 
         get_inetgw_data(networks, vpc)  # find internet gw's and add to network
 
-        get_nat_gateways()
-
-        get_peering_conn_data(networks, vpc)
+        get_nat_gateways(network_obj, vpc.id, aws_session)
 
         # run routers last as that function currently depends on the other nodes existing in order to
         # add edges - may also want to completely separate edge adds from node adds
-        populate_router_data(vpc, network_obj)  # add route tables to graph and add edges between rtb's, subnets, igw's & vgw's
+        populate_router_data(vpc,
+                             network_obj)  # add route tables to graph and add edges between rtb's, subnets, igw's & vgw's
+
+        get_peering_conn_data(network_obj, vpc)
 
         add_subnet_edges(network_obj)
 
-        add_other_edges(network_obj)
+        add_non_peer_conn_edges(network_obj)
+
+        # todo P1 handle other edges - e.g. to PCX's for sure and too ???
 
 
-# todo also collect network acl data
 def lookup_sec_group_data(group_id, sg_data):
-
-    # todo lookup some sec group data - this may be a pia as the most interesting group contents are the instances
     # in the sec group, for now, enhance to return sg ID and name (possibly tags)
 
     group_name = [sg.group_name for sg in sg_data if sg.id == group_id][0]
@@ -404,7 +436,6 @@ def get_port_range(rule):
 
 
 def get_source_ranges(rule):
-
     src_ranges = []  # gather srcs (curr aws allows only 1)
 
     for ip_range in rule['IpRanges']:  # ip ranges are list of dicts, which contain a single key 'cidrip'
@@ -414,7 +445,6 @@ def get_source_ranges(rule):
 
 
 def get_source_sec_groups(rule, sec_group_data_dict):
-
     """
     get a list of the security groups in the source "field" of the rule
 
@@ -436,6 +466,7 @@ def get_source_sec_groups(rule, sec_group_data_dict):
     return src_sec_groups
 
 
+# todo refactor to take only sec_group_ID and sec_group data dict - b/c the permissions are already in the latter
 def get_access_rules(sec_group_id, permission_list, sec_group_data_dict):  # helper func for build_subnet_rules
     """
     return data associated with access rules in an aws boto3.ec2.security_group.ip_pmissions (and egreess)
@@ -448,7 +479,6 @@ def get_access_rules(sec_group_id, permission_list, sec_group_data_dict):  # hel
     :param sec_group_data_dict:
     :return: rules data structure containing all rules for a given sec group
     """
-    # todo refactor to take only sec_group_ID and sec_group data dict - b/c the permissions are already in the latter
     extracted_rules = []  # list of rules, rule is a dict with sec_grp_id, sources, proto and port info
 
     for rule in permission_list:  # from boto3.ec2.SecurityGroup.ip_permissions[_egress], itself a list of dicts
@@ -587,7 +617,6 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
 
 
 def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False, csv_file=None):
-
     if graph_format:  # don't lower() if None (likely b/c format option not specified)
         graph_format = graph_format.lower()
 

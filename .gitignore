@@ -11,6 +11,9 @@ ignore/
 # ignore csv output files
 *.csv
 
+# ignore terraform state files
+*.tfstate*
+
 # ignore libreoffice temp files
 .~lock*
 

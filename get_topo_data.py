@@ -2,6 +2,7 @@
 # todo: verify refactor of the subnet data gathering is working correctly - in particular the security group list bits
 # todo in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
 # todo refactor node data so it's grouped by type - e.g. data = {'route_tables': {<datahere>}, 'inet_gws': {<datahere>}, ...} << this will allow me to access just those types of nodes, rather than having ot constantly iterate over all of them and check each one's type
+# todo start looking for "connections" to other accounts - could be other EW accounts but to non-ew accounts would be more interesting
 import sys
 
 import boto3

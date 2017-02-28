@@ -1,6 +1,7 @@
 dict = {'k1':'v1', 'k2':'v2'}
 
-name_components = [s for s in dict.itervalues() if s]
+tlist = [1]
 
-print ':'.join(name_components)
+tlist.append(2)
 
+print tlist
