@@ -67,12 +67,18 @@ networkx.Graph:
       id: string that is the the ID of this vpn gateway
       state: string indicating the state of this vpngw: 'attaching'|'attached'|'detaching'|'detached
 
+    <natgwid>: (dict)
+      state: pending| failed|available|deleting|deleted
+      
+
     <internet_gw_id>: (string)
 
     <peer_conn_requester--accepter_id>: (dict)
-      id: peer connection ID
       accepter_vpc_id: vpc ID of the accepting VPC
       requester_vpc_id: vpc ID of the requesting VPC
+      status: (dict)
+        Code: status code - e.g. peering_connection.status['Code']
+        Message: related message, e.g. pcx.status['Message']
 
     <route_table_id> (string: 'rtb-...')  << this is a route table - which I'm adding as a node in the network - i.e. a router
       main: None|<vpc-id>  << None or the vpc-id for which this rtb is the "main" rtb  << not sure what this will be useful for other than to verify that there is only 1 main route table
