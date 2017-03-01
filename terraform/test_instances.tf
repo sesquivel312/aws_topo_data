@@ -34,71 +34,104 @@ provider "aws" {
 resource "aws_subnet" "sn-a1" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	cidr_block = "172.31.64.0/20"
+	tags {
+	  Name = "sna1"
+	}
 }
 
 ## sn-a2 << nat gw here
 resource "aws_subnet" "sn-a2" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	cidr_block = "172.31.48.0/20"
+    tags {
+      Name = "sna2"
+    }
 }
 
 ## sn-a3 (private)
 resource "aws_subnet" "sn-a3" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	cidr_block = "172.31.32.0/20"
+    tags {
+      Name = "sna3"
+    }
 }
 
 ## sn-a4 (private, no association)
 resource "aws_subnet" "sn-a4" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	cidr_block = "172.31.0.0/20"
+    tags {
+      Name = "sna4"
+    }
 }
 
 ## sn-b1
 resource "aws_subnet" "sn-b1" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
 	cidr_block = "172.16.0.0/20"
+    tags {
+      Name = "snb1"
+    }
 }
 
 ## sn-b2 not assocaited w/rtb
 resource "aws_subnet" "sn-b2" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
 	cidr_block = "172.16.16.0/20"
+    tags {
+      Name = "snb2"
+    }
 }
 
 ## sn-b3 for host using nat instance
-resource "aws_subnet" "sn-b2" {
+resource "aws_subnet" "sn-b3" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
 	cidr_block = "172.16.32.0/20"
+    tags {
+      Name = "snb3"
+    }
 }
 
 # define routers
 ## rt rt-a1
 resource "aws_route_table" "rt-a1" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
+    tags {
+      Name = "rta1"
+    }
 }
 
 ## rt-a2, no explictly attached subnets
 resource "aws_route_table" "rt-a2" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
+    tags {
+      Name = "rta2"
+    }
 }
 
 ## rt-b1
 resource "aws_route_table" "rt-b1" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
+    tags {
+      Name = "rtb1"
+    }
 }
 
 ## rt-b2 << will route to nat instance sn b1
 resource "aws_route_table" "rt-b2" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
     propagating_vgws = ["${aws_vpn_gateway.vgw-a1.id}"]
+    tags {
+      Name = "rtb2"
+    }
 }
 
 # def vpc endpoints
 ## vpce-b1
 resource "aws_vpc_endpoint" "ep-b1" {
-  vpc_id = "${var.vpcid.vpc-b}"
-  service_name = "com.amazonaws.us-west-2-s3"
+  vpc_id = "${var.vpcid["vpc-b"]}"
+  service_name = "com.amazonaws.us-west-2.s3"
   route_table_ids = ["${aws_route_table.rt-b2.id}"]
   policy = <<POLICY
   {
@@ -119,17 +152,27 @@ resource "aws_vpc_endpoint" "ep-b1" {
 resource "aws_vpc_peering_connection" "pcx-a-b" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	peer_vpc_id = "${var.vpcid["vpc-b"]}"
+	auto_accept = true
+    tags {
+      Name = "pcxab"
+    }
 }
 
 # def igw's
 ## ig-a1
 resource "aws_internet_gateway" "ig-a1" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
+    tags {
+      Name = "iga1"
+    }
 }
 
 ## ig-b1
 resource "aws_internet_gateway" "ig-b1" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
+    tags {
+      Name = "igb1"
+    }
 }
 
 
@@ -154,6 +197,9 @@ resource "aws_network_interface" "ni-a1" {
 		instance = "${aws_instance.h-a1.id}"
 		device_index = 1
 	}
+    tags {
+      Name = "nica1"
+    }
 }
 
 # def instances
@@ -163,6 +209,9 @@ resource "aws_instance" "h-a1" {
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-a1.id}"
 	vpc_security_group_ids = ["${var.secgrpid["sg-a0"]}", "${var.secgrpid["sg-a1"]}"]
+    tags {
+      Name = "ha1"
+    }
 }
 
 ## h-a2
@@ -171,6 +220,9 @@ resource "aws_instance" "h-a2" {
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-a3.id}"
 	vpc_security_group_ids = ["${var.secgrpid["sg-a1"]}", "${var.secgrpid["sg-a2"]}"]
+    tags {
+      Name = "ha2"
+    }
 }
 
 ## h-b1
@@ -179,6 +231,9 @@ resource "aws_instance" "h-b1" {
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-b1.id}"
 	vpc_security_group_ids = ["${var.secgrpid["sg-b0"]}", "${var.secgrpid["sg-b2"]}"]
+    tags {
+      Name = "hb1"
+    }
 }
 
 ## h-b2 - NAT instance
@@ -188,6 +243,9 @@ resource "aws_instance" "h-b2" {
 	subnet_id		= "${aws_subnet.sn-b3.id}"
 	vpc_security_group_ids = ["${var.secgrpid["sg-b0"]}", "${var.secgrpid["sg-b2"]}"]
     source_dest_check = false
+    tags {
+      Name = "hb2-natinst"
+    }
 }
 
 # def routes
@@ -278,12 +336,18 @@ resource "aws_customer_gateway" "cgw-a1" {
   bgp_asn = "65000"
   ip_address = "2.2.2.2"
   type = "ipsec.1"
+  tags {
+    Name = "cgwa1"
+  }
 }
 
 # def vpn gateways (aws side of vpn)
 ## def vg-a1
 resource "aws_vpn_gateway" "vgw-a1" {
-  vpc_id = "${var.vpcid.vpc-a}"
+  vpc_id = "${var.vpcid["vpc-a"]}"
+  tags {
+    Name = "vgwa1"
+  }
 }
 
 # def vpn

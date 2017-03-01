@@ -43,6 +43,8 @@ import pprint as pp
 import networkx as nx
 import matplotlib.pyplot as plot
 
+# todo Detemrine how to handle NextToken, e.g. returned from ec2.client.describe_vpc_endpoints
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -182,13 +184,35 @@ def get_subnet_data(networks, vpc):
         for instance in subnet.instances.all():  # instance is a aws instance
             # get the security groups for this subnet
             # from the instances in it
+            # todo *1* add NAT instances as network nodes
             for group in instance.security_groups:
                 sec_group_set.add(group['GroupId'])
 
         networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
 
 
-def get_vpngw_data(networks, vpc, aws_session):
+def get_vpc_endpoint_data(network_obj, vpc_id, aws_session):
+
+    ec2_client = aws_session.client('ec2')
+
+    filter = [{'Name': 'vpcid', 'Values': [vpc_id]}]
+
+    ep_data = ec2_client.describe_vpc_enpoints(Filters=filter)
+
+    ep_data = ep_data['VpcEndpoints']  # only need the list (maybe need the NextToken, which is in the dict
+
+    print ep_data
+
+
+def get_customer_gw_data():  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
+    pass
+
+
+def get_vpn_connection_data():  # are these outside the VPC?
+    pass
+
+
+def get_vpn_gw_data(networks, vpc, aws_session):
     """
     add aws vpn gateways as nodes and add associated metadata to associated networkx object
 
@@ -375,6 +399,7 @@ def build_nets(networks, vpcs, aws_session=None):
         vpc_attribs = {'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
+        vpcid = vpc.id
         network_obj = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
 
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
@@ -382,7 +407,13 @@ def build_nets(networks, vpcs, aws_session=None):
         # sec_groups = get_subnet_data(networks, vpc)
         get_subnet_data(networks, vpc)
 
-        get_vpngw_data(networks, vpc, aws_session)  # find the vpn gw's and add to networkx graph
+        get_vpc_endpoint_data(network_obj, vpcid, aws_session)
+
+        get_customer_gw_data()  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
+
+        get_vpn_gw_data(networks, vpc, aws_session)  # find the vpn gw's and add to networkx graph
+
+        get_vpn_connection_data() # are these outside the VPC?
 
         get_inetgw_data(networks, vpc)  # find internet gw's and add to network
 
