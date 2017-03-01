@@ -66,6 +66,12 @@ resource "aws_subnet" "sn-b2" {
 	cidr_block = "172.16.16.0/20"
 }
 
+## sn-b3 for host using nat instance
+resource "aws_subnet" "sn-b2" {
+	vpc_id = "${var.vpcid["vpc-b"]}"
+	cidr_block = "172.16.32.0/20"
+}
+
 # define routers
 ## rt rt-a1
 resource "aws_route_table" "rt-a1" {
@@ -80,6 +86,32 @@ resource "aws_route_table" "rt-a2" {
 ## rt-b1
 resource "aws_route_table" "rt-b1" {
 	vpc_id = "${var.vpcid["vpc-b"]}"
+}
+
+## rt-b2 << will route to nat instance sn b1
+resource "aws_route_table" "rt-b2" {
+	vpc_id = "${var.vpcid["vpc-b"]}"
+    propagating_vgws = ["${aws_vpn_gateway.vgw-a1.id}"]
+}
+
+# def vpc endpoints
+## vpce-b1
+resource "aws_vpc_endpoint" "ep-b1" {
+  vpc_id = "${var.vpcid.vpc-b}"
+  service_name = "com.amazonaws.us-west-2-s3"
+  route_table_ids = ["${aws_route_table.rt-b2.id}"]
+  policy = <<POLICY
+  {
+    "Statement": [
+      {
+          "Action": "*",
+          "Effect": "Allow",
+          "Resource": "*",
+          "Principal": "*"
+      }
+    ]
+  }
+  POLICY
 }
 
 # def pcxs
@@ -147,6 +179,15 @@ resource "aws_instance" "h-b1" {
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-b1.id}"
 	vpc_security_group_ids = ["${var.secgrpid["sg-b0"]}", "${var.secgrpid["sg-b2"]}"]
+}
+
+## h-b2 - NAT instance
+resource "aws_instance" "h-b2" {
+	ami				= "ami-11fd2e71"
+	instance_type	= "t2.micro"
+	subnet_id		= "${aws_subnet.sn-b3.id}"
+	vpc_security_group_ids = ["${var.secgrpid["sg-b0"]}", "${var.secgrpid["sg-b2"]}"]
+    source_dest_check = false
 }
 
 # def routes
@@ -231,3 +272,32 @@ resource "aws_eip" "eip-b1" {
 	instance = "${aws_instance.h-b1.id}"
 }
 
+# def customer gateways (customer side of VPN)
+## def cg-a1
+resource "aws_customer_gateway" "cgw-a1" {
+  bgp_asn = "65000"
+  ip_address = "2.2.2.2"
+  type = "ipsec.1"
+}
+
+# def vpn gateways (aws side of vpn)
+## def vg-a1
+resource "aws_vpn_gateway" "vgw-a1" {
+  vpc_id = "${var.vpcid.vpc-a}"
+}
+
+# def vpn
+## def vpn-a1
+resource "aws_vpn_connection" "vpn-a1" {
+  vpn_gateway_id = "${aws_vpn_gateway.vgw-a1.id}"
+  customer_gateway_id = "${aws_customer_gateway.cgw-a1.id}"
+  type = "ipsec.1"
+  static_routes_only = true
+}
+
+# def VPN routes
+## 192.168.88/24
+resource "aws_vpn_connection_route" "remote" {
+  destination_cidr_block = "192.168.88.0/24"
+  vpn_connection_id = "${aws_vpn_connection.vpn-a1.id}"
+}
