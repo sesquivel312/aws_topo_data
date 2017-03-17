@@ -4,6 +4,7 @@
     <content url="file://$MODULE_DIR$" />
     <orderEntry type="jdk" jdkName="Python 2.7.12 virtualenv at ~/.virtualenvs/aws" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module" module-name="requests" />
     <orderEntry type="module" module-name="botocore" />
   </component>
   <component name="TestRunnerService">
