@@ -2,6 +2,7 @@
 import sys
 import getpass
 import os
+import platform
 import pprint as pp
 
 FLAG_URL_ENCODE_USER_INFO = False # url encode the username and password?
@@ -9,9 +10,15 @@ FLAG_PROMPT_FOR_PROXY = False  # set True to prompt user for proxy user and pwd
 
 PROXY_HOST = 'ats01'
 PROXY_PORT = '8080'
-BOTO_CORE = '/home/steve/dev/botocore'
-BOTO_BOTO3 = '/home/steve/dev/boto3'
-CA_BUNDLE = '/home/steve/certs/ec2us-west-2amazonawscom.crt'
+
+if platform.system() == 'Windows':
+    BOTO_CORE = 'C:\\Users\\steve\\Anaconda2\\envs\\aws\\Lib\\site-packages\\botocore'
+    BOTO_BOTO3 = 'C:\\Users\\steve\\Anaconda2\\envs\\aws\\Lib\\site-packages\\boto3'
+    CA_BUNDLE = 'C:\\Users\\steve\\dev\\certs\\ec2us-west-2amazonawscom.crt'
+else:
+    BOTO_CORE = '/home/steve/dev/botocore'
+    BOTO_BOTO3 = '/home/steve/dev/boto3'
+    CA_BUNDLE = '/home/steve/certs/ec2us-west-2amazonawscom.crt'
 
 sys.path.insert(0, BOTO_CORE)
 sys.path.insert(0, BOTO_BOTO3)
