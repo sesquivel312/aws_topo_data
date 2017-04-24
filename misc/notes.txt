@@ -1,0 +1,19 @@
+Items to be added to topo discovery:
+* cgw (customer gateway) (vgw is already included)
+* vpn = cgw <> vpngw
+* vpce = endpoint (e.g. to S3) x
+
+Misc:
+-----
+Nat Instances
+* can be the target of a route
+* is a "regular" instance (though there are purpose built images for it - via community marketplace - search for amzn-ami-vpc-nat - or maybe just nat)
+* AWS recognizes an instance as a "nat instance" when it's src/dst check is disabled (enabled by default
+* can query via the boto3.instance.source_dest_check attribute, which is a boolean
+
+Endpoints
+* are "back end" routes to an AWS service (currently only supported by S3 for IPV4), prevents using Internet as transit path
+*  Are added in VPC config
+* have an associated prefix-list -- maintained by AWS and contains the public IP blocks for the service
+* routes are created in the designated route table(s) when you create the endpoint
+  NB: CANNOT create routes using endpoints manually

@@ -1,0 +1,125 @@
+vpcs = boto3.ec2.resource.vpcs iterable -- from .all() method
+
+sec_groups = boto3.ec2.resource.security_groups iterable -- from .all() method
+
+networks:= python dict
+ <vpc-id>: networkx.Graph
+
+
+sec_group_rule_dict:= dict of rules for each sec_group
+  {
+    <security_group.id>: {
+          inacl: <formatted ace string>,  << taken from ec2.SecurityGroup.ip_permissions
+          outacl: <formatted ace string> << taken from ec2.SecurityGroup.ip_permissions_egress
+          },
+    ...
+  }
+
+^^ the above should change to structure below - which is data, rather than formatted strings
+sec_group_rule_dict = {
+  'sec_group_id': <sgid>,
+  'inacl': [
+    {
+      'vpcid': <vpcid>,
+      'subnetid': <subnetid>,
+      'sec_grp_id': <sgid>,
+      'direction': 'in'|'out',
+      'sources': [<s1>, <s2>, ...], << sources can be security group ID's or CIDR ranges
+      'proto': <protoname>, << string = tcp, upd, icmp, all,
+      'port_range': (<start>,<end>)  < start, end are the starting and ending port numbers - can be the same
+    },
+  'outacl': [
+    {
+      'vpcid': <vpcid>,
+      'subnetid': <subnetid>,
+      'sec_grp_id': <sgid>,
+      'direction': 'in'|'out',
+      'sources': [<s1>, <s2>, ...], << sources can be security group ID's or CIDR ranges
+      'proto': <protoname>, << string = tcp, upd, icmp, all,
+      'port_range': (<start>,<end>)  < start, end are the starting and ending port numbers - can be the same
+    }
+  ]
+}
+
+
+networkx.Graph:
+  graph: (dict) << this is effectively a dict holding arbitrary data, using it here to store VPC information
+    vpc: <vpc-id>
+    cidr: <aws cidr assoc w/VPC>
+    isdefault: <aws flag indicating this is the default vpc in the account>
+    state: <string indicating the state of the aws VPC> << not sure of possible values
+    main_route_table: <rtbid>
+
+  node: (dict) << dict of nodes, top level keys are the network nodes, e.g. subnets, vpngws, etc
+
+    <route_table_id> (string: 'rtb-...')  << this is a route table - which I'm adding as a node in the network - i.e. a router
+      name (string): name of the route route table from tags, or None
+      main: None|<vpc-id>  << uuseful for finding subnets that are implicitly associated w/the main route table
+      assoc_subnets: [snid1, ..., snidn]  (may be empty)
+      routes: [<route_data_dict>, ...]
+        route_data_dict:
+          gw_id: name/id of the gateway << can be one of sevaral types: igw, vgw, pcx, natgw, instance-if (when a nat instance)
+          dest_cidr:
+          dest_pfx: << prefix list, likely only used when NH is a VPC endpoint
+          nat_gw:
+          state:
+          egress_gw: << if an egress ONLY gw
+          origin: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
+
+    <subnet.id>:  << nodes are any hashable object, I'm using the string from the boto3 object property subnet.id
+      avail_zone: boto3.ec2.subnet.availability_zone
+      cidr: ...cidr_block
+      assign_publics: ...map_public_ip_on_launch
+      state: ...state
+      'sec_groups': set(<sec_group_id>,...)  << this is pythong set of unique security groups "attached" to the subnet (via the instances on the subnet)
+      'inacl': <formatted rules stirngs> << extracted from sec_group_rule_dict (defined above)
+      'outacl': "
+      assoc_route_table: None | <rtb-id> << route table ID of the route table to which this subnet is associated  NB: all subnets are associated with one and only one rtb, but those assocaited w/the "main" rtb in a given vpc are not listed in rtb.associations - i.e. you have to find these by subtracting the set of subnets assocaited with route tables from the list of all subnets :(
+
+      sec_groups: python set of boto3.ec2.SecurityGroup.id
+
+    <vpngatewayid>: (dict)
+      id: string that is the the ID of this vpn gateway
+      state: string indicating the state of this vpngw: 'attaching'|'attached'|'detaching'|'detached
+
+    <natgwid>: (dict)
+      state: pending| failed|available|deleting|deleted
+      
+
+    <internet_gw_id>: (string)
+
+    <peer_conn_requester--accepter_id>: (dict)
+      accepter_vpc_id: vpc ID of the accepting VPC
+      requester_vpc_id: vpc ID of the requesting VPC
+      status: (dict)
+        Code: status code - e.g. peering_connection.status['Code']: pending-acceptance | failed | expired | provisioning | active | deleted | rejected 
+        Message: related message, e.g. pcx.status['Message'] 
+
+    <vpce (endpoint) ID vpce_xxxx> (dict):
+      # add vpcid - would be redundant but easire to use when iterating over vpce's
+      service_name (string): AWS service to which this VPCE connects (only S3 for now)
+      state (string): one of: Pending|Available|Deleting|Deleted
+      route_table_ids (list):  list of route table ID's that, I assume, are using this as a NH for one or more routes  << this is possibly not needed for our puroposes here but might as well take it?
+        rtb_id (string)
+
+
+  edge: (dict) (also known as adj)
+    <route_table_id>: (dict) of adjacent nodes, built using route tables
+      <adj_node>: (dict) attributes; the adjacent node would be one of the existing nodes above, e.g. peering connection, subnet, etc.
+
+reformatted rules: << list of rules, ea rule is dict containing sec_group_id, sources, proto and port
+  [
+    {
+      'sgid': <security group id>,
+      'source': ['<uid>:<grpid>:<grpname>', ...],  << i.e. this is a list of strings w/subformat that includes 3 bits of data uid, security grp id and sec group name; i believe the uid = the uid of the account owner
+      'proto': <ip proto> << one of tcp, udp, icmp or all
+      'ports': (<startport>, <endport>)  << string representation of the tupel (start, end)
+    },
+    ...
+  ]
+
+
+
+
+
+
