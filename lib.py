@@ -32,9 +32,6 @@ VPN Gateway:
               outacl: [ same structure as inacl ] }
 """
 
-# testing grep for AWS Keys: AKIAABCDEFGHIJKLMNOP
-# 0AKIAABasdffMNOP+234098ASDFKLKJ098asdf98
-
 import argparse
 import os
 import os.path
