@@ -1,6 +1,7 @@
 # directories to ignore
 ignore/
 output/
+scratch/
 
 
 # ignore xml or gexf files (gephi) - so diagrams don't inadvertantly end up on GH
