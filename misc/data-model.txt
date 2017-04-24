@@ -1,3 +1,9 @@
+## Description
+This file documents how we're storing data in a networkx.Graph object representing
+the topology of an AWS VPC
+
+----
+
 vpcs = boto3.ec2.resource.vpcs iterable -- from .all() method
 
 sec_groups = boto3.ec2.resource.security_groups iterable -- from .all() method
