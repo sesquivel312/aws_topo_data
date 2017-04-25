@@ -291,7 +291,8 @@ def get_subnet_data(networks, vpc):
     the attributes are taken from the list of possible attributes associated with boto3.Subnet class, EXCEPT the
     assoc_route_table attribute, which is inserted by this script to be able to trace back from a subnet ID to it's
     associated route table.  NB for subnets not explicitly associated with a route table this will remain None, which
-    implies the subnet is implicitly associated with the main route table of the VPC
+    implies the subnet is implicitly associated with the main route table of the VPC.  Regardless the
+    assoc_route_table key is only created here, it's final value will be udpated by the functions that add route-tables
 
     Args:
         networks (dict of networkx.Graph): dict of Graphs to populate with data from AWS API
@@ -508,8 +509,16 @@ def get_route_table_subnet_associations(network, vpc, route_table):
         subnet_id = assoc.get('SubnetId')
         main_flag = assoc.get('Main')
 
-        if not main_flag and subnet_id:  # this is an asoc'ed subnet, add the
+        if not main_flag and subnet_id:  # this is an explicitly associated subnet
+
             route_table_data_dict['assoc_subnets'].append(subnet_id)
+
+            # update the assoc_route_table key for the subnet
+            # NB: all the subnets have to be added to the network before this happens
+            logger.info('Adding route table: {} to assoc_route_table '
+                        'field of subnet: {}'.format(route_table_id, subnet_id))
+
+            network.node[subnet_id]['assoc_route_table'] = route_table_id
 
         elif main_flag and not subnet_id:  # this is the main rtb for this vpc
             route_table_data_dict['main'] = True
