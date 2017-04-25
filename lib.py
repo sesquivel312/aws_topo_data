@@ -115,9 +115,9 @@ def get_current_us_regions(aws_session=None):
     return us_regions
 
 
-def get_aws_object_tags(aws_object, tags_to_extract):
+def get_specific_aws_tags(aws_tags, tags_to_extract):
     """
-    extract the values of a list of tags associated with an AWS object
+    extract the values of a list of tags associated with an AWS object from a "prepared" list of tags
 
     A lot of meta data is stored in AWS tags.  Generally they are found in the 'tags' attribute of aws objects that
     support them.  They are stored in an intesting way - rather than being straight dictionarys (or similar mapping
@@ -131,32 +131,33 @@ def get_aws_object_tags(aws_object, tags_to_extract):
 
     Here we search for any dicts in the tag list whose 'Key' matches one of the items in the tag_list.
 
+    NB: this function assumes you already pulled the tags from AWS somehow, either as a boto3 object attribute (tags)
+    or from the output of a lower level function.
+
     Examples:
-        given some aws object called ```some_aws_instance``` with an associated tags attribute as show above...
+        given the tag list above
 
-            get_aws_object_tags(some_aws_instance, ['Name'])
+            get_specific_aws_tags(some_aws_instance, ['Name'])
 
-            Will return {'Name': 'Foo'}
+        Will return {'Name': 'Foo'}
 
     Todo:
         * Enhance to support multiple instances of a given tag 'name' (Key)?
         * this function can probably be optimized a bit
 
     Args:
-        aws_object:  Any boto3 object that has a "tags" attribute
+        aws_tags (list of dicts):  list of tags in the "standard" aws format
         tags_to_extract (list): list of key names for which to extract values
 
     Returns (dict): results
 
     """
 
-    aws_object_tags = aws_object.tags
-
-    results = {}  # todo: can/should this be initialized form the tags_to_extract?
+    results = {}  # todo: can/should this be initialized from the tags_to_extract?
 
     for tag in tags_to_extract:
 
-        for aws_tag in aws_object_tags:  # todo determine if this can be changed to dict comprehension?
+        for aws_tag in aws_tags:  # todo determine if this can be changed to dict comprehension?
 
             if aws_tag['Key'] == tag:
                 results.setdefault(tag, aws_tag['Value'])
@@ -164,24 +165,22 @@ def get_aws_object_tags(aws_object, tags_to_extract):
     return results
 
 
-def get_aws_object_name(aws_object, dict_reference):
+def get_aws_object_name(aws_tags):
     """
-    get the AWS object name and add it to the node data
+    the name associated with an AWS object from a list of tags from AWS
+
+    NB: assumes the typical AWS tags format for boto3
 
     Args:
-        aws_object (boto3 object): a boto3 object that has the 'tags' attribute containing a Key called 'Name'
-        dict_reference (dict): this is a reference to dictionary somewhere in the 'node' sub-hierarchy of the data model
+        aws_tags (list(dicts)): tags and associated values
 
-    Returns: None
+    Returns (string): the objects name (from tags)
 
     """
 
-    tag_dict = get_aws_object_tags(aws_object, ['Name', ])
+    tag_dict = get_specific_aws_tags(aws_tags, ['Name', ])
 
-    if tag_dict['Name']:
-        dict_reference['name'] = tag_dict['Name']
-    else:
-        dict_reference['name'] = route_table_id
+    return tag_dict['Name']
 
 
 def dump_network_data(networks, f):
@@ -306,13 +305,12 @@ def get_subnet_data(networks, vpc):
 
     for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
 
-        subnet_attribs = {'avail_zone': subnet.availability_zone, 'default': subnet.default_for_az,
+        subnet_name = get_aws_object_name(subnet.tags)
+        subnet_attribs = {'name': subnet_name, 'avail_zone': subnet.availability_zone, 'default': subnet.default_for_az,
                           'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
                           'state': subnet.state, 'assoc_route_table': None}
 
         networks[vpc.id].add_node(subnet.id, **subnet_attribs)
-
-        get_aws_object_name(subnet, networks[vpc.id].node[subnet.id])
 
         sec_group_set = set([])  # set of all security groups in this subnet
 
@@ -358,24 +356,44 @@ def get_vpn_connection_data():  # are these outside the VPC?
     pass
 
 
-def get_vpn_gw_data(networks, vpc, aws_session):
+def get_vpn_gw_data(networks, vpc, session):
     """
     add aws vpn gateways as nodes and add associated metadata to associated networkx object
 
-    :param networks: dict; {'vpc-id': networkx.Graph()}
-    :param vpc: boto3.ec2.vpc
-    :param aws_session: boto3.session object; communicates with AWS
-    :return:
+    NB: vpn gateway information is available only via a boto3.Client object
+
+
+    Args:
+        networks (dict): dict of network.Graph objects representing the topo of a given VPC and containing metadata
+        vpc (boto3.Vpc): The VPC we're interested in
+        session (boto3.Session): Session object initialized with API keys, region, etc.
+
+    Returns: None
+
     """
+
+    # setup some useful local variables
+    vpc_id = vpc.id
+    network = networks[vpc_id]
+
     # must use ec2.client in order to access vpn gateway info
-    ec2_client = aws_session.client('ec2')
-    for vpngw in ec2_client.describe_vpn_gateways(Filters=[{'Name': 'attachment.vpc-id',
-                                                            'Values': [vpc.id]}])['VpnGateways']:
+    ec2_client = session.client('ec2')
+
+    filters = [{'Name': 'attachment.vpc-id', 'Values': [vpc_id]}]
+
+    returned_data_dict = ec2_client.describe_vpn_gateways(Filters=filters)
+
+    vpn_gws = returned_data_dict['VpnGateways']
+
+    # the data we need is contained in a list, which is the value of an item in the dict returned above
+    for vpn_gw in vpn_gws:
         # get vpn gw's attached to this VPC and add them as nodes
         # want the availability zone but it's not always available
-        vpngw_attributes = {'id': vpngw['VpnGatewayId'], 'state': vpngw['State']}  # want avail zone, but not always
-        #                                                                            returned
-        networks[vpc.id].add_node(vpngw['VpnGatewayId'], **vpngw_attributes)
+        vpn_gw_name = get_aws_object_name(vpn_gw['Tags'])
+        vpn_gw_id = vpn_gw['VpnGatewayId']
+        vpngw_attributes = {'name': vpn_gw_name, 'state': vpn_gw['State'], 'avail_zone': vpn_gw.get('AvailabilityZone'),
+                            'vpc_attachments': vpn_gw['VpcAttachments']}
+        network.add_node(vpn_gw_id, **vpngw_attributes)
 
 
 def get_nat_gateways(network_obj, vpc_id, aws_session):
@@ -460,11 +478,11 @@ def add_route_table_node(network, route_table):
 
     # setup local variables
     route_table_id = route_table.id
+    route_table_name = get_aws_object_name(route_table.tags)
 
-    # add "routers" to the graph (AWS route tables)
+    # add "router" to the graph (AWS route table)
     network.add_node(route_table_id)
-
-    get_aws_object_name(route_table, network.node[route_table_id])
+    network.node[route_table_id]['name'] = route_table_name
 
 
 def get_route_table_subnet_associations(network, vpc, route_table):
@@ -626,6 +644,9 @@ def get_router_data(network, vpc):
 
     """
 
+    # todo P1 *** look at "route propagation to get the vgw routes, + add'l vgw to topo that doesn't use propagation
+    # todo (cont'd) in case that looks different - i.e. puts the routes in the route-table as usual
+
     for route_table in vpc.route_tables.all():
 
         add_route_table_node(network, route_table)
@@ -697,18 +718,18 @@ def add_implicit_subnet_edge(network):
                 network.add_edge(subnet_id, main_route_table_id)
 
 
-def add_non_peer_conn_edges(network_obj):
+def add_non_pcx_edges(network_obj):
     """
-    add connections for node types OTHER THAN vpce's (vpc endpoints)
+    add connections for node types OTHER THAN vpc peering connections (pcx)
 
     Currently not sure this is covering all possible node types
 
-    Also, seem to have lost notes indicating why vpce's can't be handled here.  recall it was to do w/having to visit
-    all the VPC's first - in order to get all the vpce data so trying to add edges first caused dictionaries to be
+    Also, seem to have lost notes indicating why pcx's can't be handled here.  recall it was to do w/having to visit
+    all the VPC's first - in order to get all the pcx data so trying to add edges first caused dictionaries to be
     changed while they were being iterated over - which is bad
 
     Works by iterating over the nodes and checking their type.  When a route table (aka "router") is found, iterate
-    over it's routes, grabbing the next hop information.  For NH's other than VPCE's, add an edge for them
+    over it's routes, grabbing the next hop information.  For NH's other than pcx's, add an edge for them
 
     Args:
         network_obj (networkx Graph): a Graph object from which to extract route data
@@ -725,7 +746,7 @@ def add_non_peer_conn_edges(network_obj):
             route_list = node_dict[cur_node].get('routes')  # get the list of routes assoc w/this route-table
 
             if not route_list:
-                logger.info('Skipping route table {}, contains no routes'.format(cur_node))
+                logger.info('Skipping empty route table {}'.format(cur_node))
                 continue
 
             for route in route_list:
@@ -803,7 +824,7 @@ def build_nets(networks, vpcs, aws_session=None):
 
         add_implicit_subnet_edge(network)
 
-        add_non_peer_conn_edges(network)
+        add_non_pcx_edges(network)
 
         # todo P1 handle other edges - e.g. to PCX's for sure and too ???
 

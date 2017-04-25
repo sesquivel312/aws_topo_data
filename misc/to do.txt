@@ -1,12 +1,9 @@
+Look at "route propagation" to add routes via VGW's
+
 ** look at support.populate_router_data - try to figure out how I can use it and/or add_explicit_subnet_edges to add edges for implicitly associated subnets
   The main route table is indicated by a subnet association with attributes Main = True and SubnetId = None (or key Main doesn't exist)
   There is no "association" information contained in the Subnet object!!! << this is what makes this difficult
 
-Use the get routes function to identify nat instances and add them somewhere in the data model?
-
-
-20170419 Look at terraform to ensure it's adding vpc endpoints and then verify the function getting vpce data into the ntework objects is working correctly!
-20170421 add edges for unassociated subnets (not associated with a route table)
 20170421 determine how to handle nodes that are in a state other than "in use", e.g. deleted - do we weant them in the DB or not, if they are we should render them differently and include a note when "rendering" to text - look at using some sort of data structure that returns a bunch of 2-tuples of networkx-node-lists & pyplot attributes for rendering those nodes
 
 Just done: parsing rules by subnet (well almost done, needs some clean up ...)

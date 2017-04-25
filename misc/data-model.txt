@@ -64,12 +64,13 @@ networkx.Graph:
       assoc_subnets: [snid1, ..., snidn]  (may be empty)
       routes: [<route_data_dict>, ...]
         route_data_dict:
-          gw_id: name/id of the gateway << can be one of sevaral types: igw, vgw, pcx, natgw, instance-if (when a nat instance)
           dest_cidr:
           dest_pfx: << prefix list, likely only used when NH is a VPC endpoint
+          gw_id: name/id of the gateway << can be one of sevaral types: igw, vgw, pcx, natgw, instance-if (when a nat instance)
           nat_gw:
-          state:
           egress_gw: << if an egress ONLY gw
+          nat_instance (string): ID of nat instance as next hop (given by Route.instance_id)
+          state (string): active|blackhole|??? , not sure of other possibilites
           origin: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
 
     <subnet.id>:  << nodes are any hashable object, I'm using the string from the boto3 object property subnet.id
@@ -87,8 +88,14 @@ networkx.Graph:
       sec_groups: python set of boto3.ec2.SecurityGroup.id
 
     <vpngatewayid>: (dict)
-      id: string that is the the ID of this vpn gateway
-      state: string indicating the state of this vpngw: 'attaching'|'attached'|'detaching'|'detached
+      name (string): name of this gateway (from tags with Key = Name)
+      state (string): 'pending'|'available'|'deleting'|'deleted'
+      avail_zone (string): AWS AZ in which this vgw resides (AvailabilityZone)
+      vpc_attachments (dict): (VpcAttachments)
+        vpc_id (string): id of an "attached" vpc (VpcId)
+        state (string): attaching|attached|detaching|detached (State)
+
+
 
     <natgwid>: (dict)
       state: pending| failed|available|deleting|deleted
