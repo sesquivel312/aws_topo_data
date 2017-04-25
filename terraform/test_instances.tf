@@ -1,3 +1,12 @@
+/*
+	<add descriptive text here>
+
+	Todo:
+		* <add a todo here>
+		* <add more as needed>
+
+*/
+
 # define variable for vpcid lookups
 variable "vpcid" {  # access with: var.vpcid["vpc-a"]
 	default = {
@@ -64,6 +73,12 @@ resource "aws_subnet" "sn-a4" {
     tags {
       Name = "sna4"
     }
+}
+
+## subnet w/out a name in A (private, no association)
+resource "aws_subnet" "sn-a4" {
+	vpc_id = "${var.vpcid["vpc-a"]}"
+	cidr_block = "172.31.16.0/20"
 }
 
 ## sn-b1

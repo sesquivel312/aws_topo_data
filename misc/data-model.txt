@@ -73,7 +73,9 @@ networkx.Graph:
           origin: 'CreateRouteTable'|'CreateRoute'|'enableVgwRoutePropogation'
 
     <subnet.id>:  << nodes are any hashable object, I'm using the string from the boto3 object property subnet.id
+      name (string): name of the subnet, if there is one, otherwise use the subnet ID
       avail_zone: boto3.ec2.subnet.availability_zone
+      default (boolean): True of this is the default subnet for the associated Availability Zone
       cidr: ...cidr_block
       assign_publics: ...map_public_ip_on_launch
       state: ...state

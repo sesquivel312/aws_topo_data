@@ -198,10 +198,9 @@ def dump_network_data(networks, f):
     """
 
     for id, net in networks.iteritems():
-
+        f.write('======= Dumping VPC: {} =======\n'.format(net.graph['vpc']))
         pp.pprint(net.node, f)
-
-    f.write('========================\n\n')
+        f.write('\n\n')
 
 
 def get_vpcs_and_secgroups(aws_session=None):  # todo validate region inherited from Session
@@ -304,9 +303,9 @@ def get_subnet_data(networks, vpc):
 
     for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
 
-        subnet_attribs = {'avail_zone': subnet.availability_zone, 'cidr': subnet.cidr_block,
-                          'assign_publics': subnet.map_public_ip_on_launch, 'state': subnet.state,
-                          'assoc_route_table': None}
+        subnet_attribs = {'avail_zone': subnet.availability_zone, 'default': subnet.default_for_az,
+                          'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
+                          'state': subnet.state, 'assoc_route_table': None}
 
         networks[vpc.id].add_node(subnet.id, **subnet_attribs)
 
