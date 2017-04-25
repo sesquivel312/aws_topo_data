@@ -67,7 +67,7 @@ resource "aws_subnet" "sn-a3" {
 }
 
 ## sn-a4 (private, no association)
-resource "aws_subnet" "sn-a4" {
+resource "aws_subnet" "sn-a5" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	cidr_block = "172.31.0.0/20"
     tags {
