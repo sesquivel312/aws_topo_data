@@ -1,4 +1,3 @@
-mylist = []
+adict = {'key':}
 
-for i in mylist:
-    print i:
+print adict

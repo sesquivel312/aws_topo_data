@@ -34,10 +34,8 @@ vpcs, sec_groups = lib.get_vpcs_and_secgroups(aws_session=aws_session)
 
 lib.build_nets(networks, vpcs, aws_session)  # this does most of the work
 
-for id, net in networks.iteritems():
-    print '\n\n'
-    pp.pprint(net.node)
-    print '\n\n'
+with open('output/net-dump.out', 'w') as f:
+    lib.dump_network_data(networks, f)
 
 lib.collect_subnet_rules(networks, sec_groups)
 

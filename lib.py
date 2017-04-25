@@ -1,4 +1,9 @@
 """
+
+Todo:
+    * Add a name key to all nodes in the network graph (currently only added to the route-table nodes)
+    * update rendering functions to use node names rather than ID's
+
 functions for compiling data from aws
 
 Data is stored as attributes of a networkx graph, one network per AWS VPC (virtual private container).  Each graph
@@ -48,7 +53,6 @@ import networkx as nx
 import matplotlib.pyplot as plot
 
 # todo add paginator to use of client ec2.client.describe_vpc_endpoints
-
 # todo P3 try to get logging out of global in this module
 # todo P3 decide on UTC or local TZ, then fix log message format accordingly
 # todo P3 start using the functions built into logging that read config files
@@ -56,9 +60,8 @@ LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 
 # filename='output/log_output.log'
-# NB: the log config line below affects the boto3 logging too, I believe
 logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
-                    datefmt=LOG_TIMESTAMP_FORMAT_STRING)
+                    datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename='output/log_output.log', filemode='w')
 logger = logging.getLogger('aws_topo')  # create our own logger to set log level independent of the global level
 logger.setLevel(logging.INFO)
 
@@ -108,6 +111,77 @@ def get_current_us_regions(aws_session=None):
         if name.startswith('us-'):
             us_regions.append(name)
     return us_regions
+
+
+def get_aws_object_tags(aws_object, tags_to_extract):
+    """
+    extract the values of a list of tags associated with an AWS object
+
+    A lot of meta data is stored in AWS tags.  Generally they are found in the 'tags' attribute of aws objects that
+    support them.  They are stored in an intesting way - rather than being straight dictionarys (or similar mapping
+    type) they are stored as a list of dicts.  Each dict contains two keys, which are always called: 'Key', 'Value'.
+
+        For example:
+
+            tags = [{'Key': 'Name', 'Value': 'Foo'}]
+
+            This example contains one tag, they 'key' for the tag is 'Name' and it's value is 'Foo'
+
+    Here we search for any dicts in the tag list whose 'Key' matches one of the items in the tag_list.
+
+    Examples:
+        given some aws object called ```some_aws_instance``` with an associated tags attribute as show above...
+
+            get_aws_object_tags(some_aws_instance, ['Name'])
+
+            Will return {'Name': 'Foo'}
+
+    Todo:
+        * Enhance to support multiple instances of a given tag 'name' (Key)?
+        * this function can probably be optimized a bit
+
+    Args:
+        aws_object:  Any boto3 object that has a "tags" attribute
+        tags_to_extract (list): list of key names for which to extract values
+
+    Returns (dict): results
+
+    """
+
+    aws_object_tags = aws_object.tags
+
+    results = {}  # todo: can/should this be initialized form the tags_to_extract?
+
+    for tag in tags_to_extract:
+
+        for aws_tag in aws_object_tags:  # todo determine if this can be changed to dict comprehension?
+
+            if aws_tag['Key'] == tag:
+                results.setdefault(tag, aws_tag['Value'])
+
+    return results
+
+
+def dump_network_data(networks, f):
+    """
+    write out the network meta data to a file
+
+    Todo:
+        * Determine if this stays given there is a render to file function (which is not completed)
+
+    Args:
+        networks (dictionary): dictionary of networkx.Graph, one per VPC
+        f (file): a reference to a file open for writing
+
+    Returns: None
+
+    """
+
+    for id, net in networks.iteritems():
+
+        pp.pprint(net.node, f)
+
+    f.write('========================\n\n')
 
 
 def get_vpcs_and_secgroups(aws_session=None):  # todo validate region inherited from Session
@@ -346,6 +420,35 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
             logger.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
 
 
+def add_route_table_node(network, route_table):
+    """
+    add the route-table node type to the network graph
+
+    Also extracts the AWS RouteTable name from the tags attribute and adds that data
+
+    Args:
+        network (networkx.Graph): graph representing the VPC topo and holding assocaited meta-data
+        route_table (boto3.RouteTable): the route table to add to network graph
+
+    Returns: None
+
+    """
+
+    # setup local variables
+    route_table_id = route_table.id
+
+    # add "routers" to the graph (AWS route tables)
+    network.add_node(route_table_id)
+
+    # extract route-table name and add it to the data
+    tag_dict = get_aws_object_tags(route_table, ['Name', ])
+
+    if tag_dict['Name']:
+        network.node[route_table_id]['name'] = tag_dict['Name']
+    else:
+        network.node[route_table_id]['name'] = route_table_id
+
+
 def get_route_table_subnet_associations(network, vpc, route_table):
     """
     collect subnet ID's explicitly associated with a given RouteTable and add them to the network data model
@@ -375,8 +478,7 @@ def get_route_table_subnet_associations(network, vpc, route_table):
     network_data_dict = network.graph
     route_table_data_dict = network.node[route_table_id]
 
-    # add and init associated subnet list, which are the subnets explicitly associated w/this route table
-    # via AWS config
+    # add associated subnet list to the route table data, associated means *explicitly* configured via AWS API calls
     route_table_data_dict['assoc_subnets'] = []
 
     # add and init the flag indicating if this is the main route table for this vpc
@@ -479,7 +581,8 @@ def get_route_table_routes(network, route_table):
                        'state': state, 'origin': origin,
                        'egress_gw': egress_gw})
 
-def get_router_data(vpc, network):
+
+def get_router_data(network, vpc):
     """
     Extract route table data for a given VPC and populate the network data model
 
@@ -493,15 +596,13 @@ def get_router_data(vpc, network):
 
     for route_table in vpc.route_tables.all():
 
-        # add "routers" to the graph (AWS route tables)
-        network.add_node(route_table.id)
+        add_route_table_node(network, route_table)
 
         # get the subnet associations data object from AWS API and iterate over it to extract useful info
         get_route_table_subnet_associations(network, vpc, route_table)
 
         # add the routes contained in this route table to our data model
         get_route_table_routes(network, route_table)
-
 
 
 def add_explicit_subnet_edges(network_obj):
@@ -565,7 +666,7 @@ def add_non_peer_conn_edges(network_obj):
 
                 if gw_name.startswith('pcx'):
                     logger.info(
-                        'got a pcx next hop, not handled by this function (add_non_peer_conn_edges')  # eventually just skip pcx'es
+                        'got a pcx next hop, not handled by this function (add_non_peer_conn_edges)')  # eventually just skip pcx'es
 
                 # local is the route for the CIDR block attacked to the VPC itself, seems somethign like a hold down
                 elif gw_name == 'local':
@@ -625,7 +726,7 @@ def build_nets(networks, vpcs, aws_session=None):
         # node types
         # add edges - may also want to completely separate edge adds from node adds
         # add route tbls to graph & edges between rtb's, subnets, igw's & vgw's
-        get_router_data(vpc, network_obj)
+        get_router_data(network_obj, vpc)
 
         get_peering_conn_data(network_obj, vpc)
 
