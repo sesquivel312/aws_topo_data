@@ -162,6 +162,26 @@ def get_aws_object_tags(aws_object, tags_to_extract):
     return results
 
 
+def get_aws_object_name(aws_object, dict_reference):
+    """
+    get the AWS object name and add it to the node data
+
+    Args:
+        aws_object (boto3 object): a boto3 object that has the 'tags' attribute containing a Key called 'Name'
+        dict_reference (dict): this is a reference to dictionary somewhere in the 'node' sub-hierarchy of the data model
+
+    Returns: None
+
+    """
+
+    tag_dict = get_aws_object_tags(aws_object, ['Name', ])
+
+    if tag_dict['Name']:
+        dict_reference['name'] = tag_dict['Name']
+    else:
+        dict_reference['name'] = route_table_id
+
+
 def dump_network_data(networks, f):
     """
     write out the network meta data to a file
@@ -289,6 +309,8 @@ def get_subnet_data(networks, vpc):
                           'assoc_route_table': None}
 
         networks[vpc.id].add_node(subnet.id, **subnet_attribs)
+
+        get_aws_object_name(subnet, networks[vpc.id].node[subnet.id])
 
         sec_group_set = set([])  # set of all security groups in this subnet
 
@@ -440,13 +462,7 @@ def add_route_table_node(network, route_table):
     # add "routers" to the graph (AWS route tables)
     network.add_node(route_table_id)
 
-    # extract route-table name and add it to the data
-    tag_dict = get_aws_object_tags(route_table, ['Name', ])
-
-    if tag_dict['Name']:
-        network.node[route_table_id]['name'] = tag_dict['Name']
-    else:
-        network.node[route_table_id]['name'] = route_table_id
+    get_aws_object_name(route_table, network.node[route_table_id])
 
 
 def get_route_table_subnet_associations(network, vpc, route_table):
@@ -462,6 +478,9 @@ def get_route_table_subnet_associations(network, vpc, route_table):
     'SubnetId' field will be None (or perhaps it doesn't exist?).  Because of this, we check for various combinations of
     'Main' and 'SubnetId' that (probably) should not happen, e.g. duplicate main subnets with the same subnet-id or,
     worse, two different subnets claiming to be main.
+
+    Todo:
+        * determine if get_subresources might be useful to get the implicitly associated subnets
 
     Args:
         route_table (boto3.RouteTable):
@@ -585,6 +604,9 @@ def get_route_table_routes(network, route_table):
 def get_router_data(network, vpc):
     """
     Extract route table data for a given VPC and populate the network data model
+
+    Relies on other functions to do mos of the real work.  This function is here to make the code
+    a bit more readable (hopefully)
 
     Args:
         vpc (boto3.Vpc):
