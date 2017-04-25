@@ -1,9 +1,5 @@
 """
 
-Todo:
-    * Add a name key to all nodes in the network graph (currently only added to the route-table nodes)
-    * update rendering functions to use node names rather than ID's
-
 functions for compiling data from aws
 
 Data is stored as attributes of a networkx graph, one network per AWS VPC (virtual private container).  Each graph
@@ -52,10 +48,16 @@ import pdb
 import networkx as nx
 import matplotlib.pyplot as plot
 
-# todo add paginator to use of client ec2.client.describe_vpc_endpoints
+# todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
+# todo P2 Add a name key to all nodes in the network graph (currently only added to the route-table nodes)
+# todo P2 update rendering functions to use node names rather than ID's\
+# todo P3 optimize data collection - e.g. currently looping network nodes multiple times to add edges of diff types
 # todo P3 try to get logging out of global in this module
 # todo P3 decide on UTC or local TZ, then fix log message format accordingly
 # todo P3 start using the functions built into logging that read config files
+# todo P3 logging - generally improve - in particular how it's 'shared' between the driver script and this module
+# todo P3 logging - factor logging setup out of global name space and make configurable via CLI and file
+
 LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 
@@ -635,28 +637,64 @@ def get_router_data(network, vpc):
         get_route_table_routes(network, route_table)
 
 
-def add_explicit_subnet_edges(network_obj):
+def add_explicit_subnet_edges(network):
     """
     add edges between route-tables and subnets that are explicitly associated
 
     NB: subnets in AWS that are not configured with an association are implicitly associated w/the main route table
 
     Args:
-        network_obj (networkx.Graph): Network representing the VPC containing the subnets to which edges will be added
+        network (networkx.Graph): Network representing the VPC containing the subnets to which edges will be added
 
     Returns: None
 
     """
     # add the explicitly associated subnets first, updating the assoc_route_table data item as you go
-    node_dict = network_obj.node  # local ref to dict of node data
+    node_dict = network.node  # local ref to dict of node data
 
     for cur_node in node_dict:
-        if get_node_type(cur_node) == 'router':  # only interested in router nodes
+        if get_node_type(cur_node) == 'router':  # add edges from route-table (router) nodes
             rtb_id = cur_node
             subnets = node_dict[cur_node]['assoc_subnets']
             if len(subnets):  # verify there are subnets in the list
                 for subnet in subnets:
-                    network_obj.add_edge(rtb_id, subnet)
+                    network.add_edge(rtb_id, subnet)
+
+
+def add_implicit_subnet_edge(network):
+    """
+    add network edges for subnets not explicitly associated with a route table
+
+    In AWS subnets not associated with a route-table are implicitly associated with the main route table for a given
+    VPC.  This function adds edges for such subnets.
+
+    Works by looping over the nodes in the network.  When a subnet is found, it cheks to see if that subnet's
+    assoc_route_table field is 'None', indicating this subnet is implicitly associated with the VPC main route table.
+
+    NB: the subnets, route-tables, and explicitly associated subnet edges must be added *before* this function
+    is called.  This is b/c subnets are marked as implicitly associated with the VPC main route by virtue of
+    the fact that get_router_data() didn't update the subnet's assoc_route_table field when it ran.
+
+
+    Args:
+        network (networkx.Graph):  Graph holding network topo metadata for a given VPC
+
+    Returns: None
+
+    """
+
+    # local ref to dict of node data
+    node_dict = network.node
+    main_route_table_id = network.graph['main_route_table']
+
+    for cur_node in node_dict:
+
+        if get_node_type(cur_node) == 'subnet':  # add edges from subnet nodes
+
+            subnet_id = cur_node
+
+            if not node_dict[subnet_id]['assoc_route_table']:
+                network.add_edge(subnet_id, main_route_table_id)
 
 
 def add_non_peer_conn_edges(network_obj):
@@ -700,7 +738,8 @@ def add_non_peer_conn_edges(network_obj):
 
                 # local is the route for the CIDR block attacked to the VPC itself, seems somethign like a hold down
                 elif gw_name == 'local':
-                    logger.info('got node type/name "local" - not handled at all, skipping')
+                    logger.info('Got node type/name "local" - currently this is uninteresting.  Logging occurance for '
+                                'future inspection if interest changes')
 
                 elif gw_name not in node_dict:  # if the gw "name" is NOT in the node dict
                     # there's a problem, print an error and do nothing
@@ -733,14 +772,14 @@ def build_nets(networks, vpcs, aws_session=None):
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
         vpcid = vpc.id
-        network_obj = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
+        network = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
 
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
         # sec_groups = get_subnet_data(networks, vpc)
         get_subnet_data(networks, vpc)
 
-        get_vpc_endpoint_data(network_obj, vpcid, aws_session)
+        get_vpc_endpoint_data(network, vpcid, aws_session)
 
         get_customer_gw_data()  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
 
@@ -750,19 +789,21 @@ def build_nets(networks, vpcs, aws_session=None):
 
         get_inetgw_data(networks, vpc)  # find internet gw's and add to network
 
-        get_nat_gateways(network_obj, vpc.id, aws_session)
+        get_nat_gateways(network, vpc.id, aws_session)
 
         # handle routers last as the function retrieving router data currently depends on the existence of all the other
         # node types
         # add edges - may also want to completely separate edge adds from node adds
         # add route tbls to graph & edges between rtb's, subnets, igw's & vgw's
-        get_router_data(network_obj, vpc)
+        get_router_data(network, vpc)
 
-        get_peering_conn_data(network_obj, vpc)
+        get_peering_conn_data(network, vpc)
 
-        add_explicit_subnet_edges(network_obj)
+        add_explicit_subnet_edges(network)
 
-        add_non_peer_conn_edges(network_obj)
+        add_implicit_subnet_edge(network)
+
+        add_non_peer_conn_edges(network)
 
         # todo P1 handle other edges - e.g. to PCX's for sure and too ???
 
