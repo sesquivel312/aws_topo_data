@@ -744,15 +744,17 @@ def add_non_pcx_edges(network):
 
     """
 
-    node_dict = network.node
+    nodes = network.node
 
-    for cur_node in node_dict:
+    for cur_node in nodes:
         if get_node_type(cur_node) == 'router':  # if it's a router
 
-            route_list = node_dict[cur_node].get('routes')  # get the list of routes assoc w/this route-table
+            router = cur_node
+
+            route_list = nodes[router].get('routes')  # get the list of routes assoc w/this route-table
 
             if not route_list:
-                logger.info('Skipping empty route table {}'.format(cur_node))
+                logger.info('Skipping empty route table {}'.format(router))
                 continue
 
             for route in route_list:
@@ -760,21 +762,22 @@ def add_non_pcx_edges(network):
                 gw_name = create_gateway_name(route)
 
                 if gw_name.startswith('pcx'):
+                    # eventually just skip pcx'es
                     logger.info(
-                        'got a pcx next hop, not handled by this function (add_non_peer_conn_edges)')  # eventually just skip pcx'es
+                        'got a pcx next hop, not handled by this function (add_non_peer_conn_edges)')
 
-                # local is the route for the CIDR block attacked to the VPC itself, seems somethign like a hold down
+                # local is the route for the CIDR block attacked to the VPC itself, seems something like a hold down
                 elif gw_name == 'local':
                     logger.info('Got node type/name "local" in route-table: {} - currently this is uninteresting.  '
-                                'Logging occurrence for future inspection if interest changes'.format(cur_node))
+                                'Logging occurrence for future inspection if interest changes'.format(router))
 
-                elif gw_name not in node_dict:  # if the gw "name" is NOT in the node dict
+                elif gw_name not in nodes:  # if the gw "name" is NOT in the node dict
                     # there's a problem, print an error and do nothing
                     logger.info('{} is a next hop type that does not yet exist as a node in the network, '
                                 'this should not occur, something has gone wrong'.format(gw_name))
 
                 else:  # else add an edge
-                    network.add_edge(cur_node, gw_name)  # +edge: current rtb and the gw (next hop)
+                    network.add_edge(router, gw_name)
 
 
 def add_pcx_edges(network):
