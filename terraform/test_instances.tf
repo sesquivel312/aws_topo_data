@@ -357,7 +357,7 @@ resource "aws_eip" "eip-b1" {
 ## def cg-a1
 resource "aws_customer_gateway" "cgw-a1" {
   bgp_asn = "65000"
-  ip_address = "2.2.2.2"
+  ip_address = "173.255.249.197"
   type = "ipsec.1"
   tags {
     Name = "cgwa1"

@@ -1,3 +1,0 @@
-adict = {'key':}
-
-print adict

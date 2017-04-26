@@ -57,6 +57,7 @@ import matplotlib.pyplot as plot
 # todo P3 start using the functions built into logging that read config files
 # todo P3 logging - generally improve - in particular how it's 'shared' between the driver script and this module
 # todo P3 logging - factor logging setup out of global name space and make configurable via CLI and file
+# todo P3 generalize this away from AWS specifically
 
 LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
@@ -178,7 +179,10 @@ def get_aws_object_name(aws_tags):
 
     """
 
-    tag_dict = get_specific_aws_tags(aws_tags, ['Name', ])
+    try:
+        tag_dict = get_specific_aws_tags(aws_tags, ['Name', ])  # todo P3 add exception handling elsewhere
+    except TypeError as e:
+        return 'NAME_NOT_EXIST'
 
     return tag_dict['Name']
 
@@ -257,7 +261,7 @@ def get_node_type(node_name):
         return None
 
 
-def create_gateway_name(route_dict):
+def create_gateway_name(route):
     """
     construct and return a gateway "name" from a dict of route attributes
 
@@ -271,15 +275,17 @@ def create_gateway_name(route_dict):
     Currently skipping any ??? == 'local'
 
     Args:
-        route_dict (dict): dictionary of route attributes - see function populate_router_data
+        route (dict): dictionary of route attributes - see data-model.txt for more info
 
     Returns (string): constructed gateway name
 
     """
 
     # get the non None values from the route attribute dict, that matter in identifying the gw "name"
-    name_components = [v for k, v in route_dict.iteritems() if k in
-                       ['gw_id', 'inst_id', 'pcx_id', 'nat_gw', 'egress_gw'] and v]
+    node_type_prefixes = ['gw_id', 'inst_id', 'pcx_id', 'nat_gw', 'egress_gw']
+
+    name_components = [v for k, v in route.iteritems() if k in
+                       node_type_prefixes and v]
 
     return ':'.join(name_components)
 
@@ -571,7 +577,7 @@ def get_route_table_subnet_associations(network, vpc, route_table):
 
 def get_route_table_routes(network, route_table):
     """
-    collect the actual route data from a given route table and insert it into the network data model
+    extract route entries from a given route table and insert them into the network data model
 
     A 'route' is what is classically thought of when one says, "what's the route to network N" (in the context of the
     IP protocol).  This function gets the data associated with each route, e.g. destination and next hop, and puts that
@@ -718,7 +724,7 @@ def add_implicit_subnet_edge(network):
                 network.add_edge(subnet_id, main_route_table_id)
 
 
-def add_non_pcx_edges(network_obj):
+def add_non_pcx_edges(network):
     """
     add connections for node types OTHER THAN vpc peering connections (pcx)
 
@@ -732,13 +738,13 @@ def add_non_pcx_edges(network_obj):
     over it's routes, grabbing the next hop information.  For NH's other than pcx's, add an edge for them
 
     Args:
-        network_obj (networkx Graph): a Graph object from which to extract route data
+        network (networkx Graph): a Graph object from which to extract route data
 
     Returns: None
 
     """
 
-    node_dict = network_obj.node
+    node_dict = network.node
 
     for cur_node in node_dict:
         if get_node_type(cur_node) == 'router':  # if it's a router
@@ -759,8 +765,8 @@ def add_non_pcx_edges(network_obj):
 
                 # local is the route for the CIDR block attacked to the VPC itself, seems somethign like a hold down
                 elif gw_name == 'local':
-                    logger.info('Got node type/name "local" - currently this is uninteresting.  Logging occurance for '
-                                'future inspection if interest changes')
+                    logger.info('Got node type/name "local" in route-table: {} - currently this is uninteresting.  '
+                                'Logging occurrence for future inspection if interest changes'.format(cur_node))
 
                 elif gw_name not in node_dict:  # if the gw "name" is NOT in the node dict
                     # there's a problem, print an error and do nothing
@@ -768,7 +774,57 @@ def add_non_pcx_edges(network_obj):
                                 'this should not occur, something has gone wrong'.format(gw_name))
 
                 else:  # else add an edge
-                    network_obj.add_edge(cur_node, gw_name)  # +edge: current rtb and the gw (next hop)
+                    network.add_edge(cur_node, gw_name)  # +edge: current rtb and the gw (next hop)
+
+
+def add_pcx_edges(network):
+    """
+    add connections for vpc peering connections (pcx)
+
+    Works by iterating over the nodes and checking their type.  When a router (route-table) node is found, iterate
+    over it's routes, grabbing the next hop information.  When the NH is a pcx, add the edge
+
+    NB: this is currently handled separate from edges to other node types b/c there's an issue w/when the PCS's are
+    added relative to adding edges to them - see add_non_pcx_edges()
+
+    Args:
+        network (networkx.Graph): Graph containing data about the network topo of a given VPC
+
+    Returns: None
+
+    """
+
+    nodes = network.node
+
+    for cur_node in nodes:
+        if get_node_type(cur_node) == 'router':  # find the route-table nodes
+
+            route_list = nodes[cur_node].get('routes')  # get the list of routes assoc w/this route-table
+
+            if not route_list:
+                logger.info('Skipping empty route table {}'.format(cur_node))
+                continue
+
+            for route in route_list:
+
+                gw_name = create_gateway_name(route)
+
+                if gw_name.startswith('pcx'):
+                    logger.info(
+                        'got a pcx next hop, not handled by this function (add_non_peer_conn_edges)')  # eventually just skip pcx'es
+
+                # local is the route for the CIDR block attacked to the VPC itself, seems somethign like a hold down
+                elif gw_name == 'local':
+                    logger.info('Got node type/name "local" in route-table: {} - currently this is uninteresting.  '
+                                'Logging occurrence for future inspection if interest changes'.format(cur_node))
+
+                elif gw_name not in nodes:  # if the gw "name" is NOT in the node dict
+                    # there's a problem, print an error and do nothing
+                    logger.info('{} is a next hop type that does not yet exist as a node in the network, '
+                                'this should not occur, something has gone wrong'.format(gw_name))
+
+                else:  # else add an edge
+                    network.add_edge(cur_node, gw_name)  # +edge: current rtb and the gw (next hop)
 
 
 def build_nets(networks, vpcs, aws_session=None):
@@ -826,7 +882,9 @@ def build_nets(networks, vpcs, aws_session=None):
 
         add_non_pcx_edges(network)
 
-        # todo P1 handle other edges - e.g. to PCX's for sure and too ???
+        add_pcx_edges(network)
+
+        # todo P1 add handling of edges to: nat-inst, ???
 
 
 def lookup_sec_group_data(group_id, sg_data):
