@@ -864,11 +864,11 @@ def build_nets(networks, vpcs, session=None):
     # todo P3 get NACL's
 
     for vpc in vpcs:
+
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
         vpc_attribs = {'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
-        vpcid = vpc.id
         network = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
 
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
