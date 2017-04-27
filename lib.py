@@ -595,7 +595,7 @@ def get_route_table_subnet_associations(network, vpc, route_table):
                                                                                 subnet_id))
 
 
-def get_route_table_routes(network, route_table):
+def get_route_table_routes(network, vpc, route_table):
     """
     extract route entries from a given route table and insert them into the network data model
 
@@ -618,6 +618,7 @@ def get_route_table_routes(network, route_table):
         gateway
 
     Args:
+        vpc:
         network (networkx.Graph): Graph representing a given VPC
         route_table (boto3.RouteTable): route table from which to extract routes
 
@@ -653,6 +654,8 @@ def get_route_table_routes(network, route_table):
                        'pcx_id': pcx_id, 'nat_gw': nat_gw,
                        'state': state, 'origin': origin,
                        'egress_gw': egress_gw})
+        logger.info('Added route for {} to route-table {} '
+                    'in vpc: {}'.format(dest_cidr or dest_pfx, route_table.id, vpc.id))
 
 
 def get_router_data(network, vpc):
@@ -681,7 +684,7 @@ def get_router_data(network, vpc):
         get_route_table_subnet_associations(network, vpc, route_table)
 
         # add the routes contained in this route table to our data model
-        get_route_table_routes(network, route_table)
+        get_route_table_routes(network, vpc, route_table)
 
 
 def add_explicit_subnet_edges(network):
