@@ -38,6 +38,43 @@ provider "aws" {
 	region 		= "us-west-2"
 }
 
+# def nacls
+## nacl-a1
+resource "aws_network_acl" "nacl-a1" {
+	vpc_id = "${var.vpcid["vpc-a"]}"
+
+	ingress {
+      rule_no = 1
+      protocol = "tcp"
+      action = "deny"
+      cidr_block = "0.0.0.0/0"
+      from_port = 0
+      to_port = 1433
+	}
+
+    ingress {
+      rule_no = 2
+      protocol = "tcp"
+      action = "allow"
+      cidr_block = "4.4.4.4/32"
+      from_port = 0
+      to_port = 53
+    }
+
+	egress {
+      rule_no = 1
+      protocol = "udp"
+      action = "deny"
+      cidr_block = "172.0.0.0/8"
+      from_port = 0
+      to_port = 123
+	}
+
+	tags {
+	  Name = "nacl-a1"
+	}
+}
+
 # def subnets
 ## sn-a1 << dual homed host
 resource "aws_subnet" "sn-a1" {

@@ -30,9 +30,12 @@ if key_id == None or key == None:
 aws_session = boto3.session.Session(aws_access_key_id=key_id, aws_secret_access_key=key, region_name=args.region)
 
 # get top level aws objects; they are iterables
-vpcs, sec_groups = lib.get_vpcs_and_secgroups(aws_session=aws_session)
+vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 
-lib.build_nets(networks, vpcs, aws_session)  # this does most of the work
+lib.get_nacls(vpcs)
+
+# collect all the topo and related meta data
+lib.build_nets(networks, vpcs, aws_session)
 
 with open('output/net-dump.out', 'w') as f:
     lib.dump_network_data(networks, f)

@@ -174,7 +174,7 @@ def get_aws_object_name(aws_tags):
     NB: assumes the typical AWS tags format for boto3
 
     Args:
-        aws_tags (list(dicts)): tags and associated values
+        aws_tags (list(dicts)): tags and associated values, typically from <object>.tags
 
     Returns (string): the objects name (from tags)
 
@@ -185,7 +185,7 @@ def get_aws_object_name(aws_tags):
     except TypeError as e:
         return 'NAME_NOT_EXIST'
 
-    return tag_dict['Name']
+    return tag_dict.get('Name', 'NAME_NOT_EXIST')
 
 
 def dump_network_data(networks, f):
@@ -209,12 +209,14 @@ def dump_network_data(networks, f):
         f.write('\n\n')
 
 
-def get_vpcs_and_secgroups(aws_session=None):  # todo validate region inherited from Session
+# todo P3 validate region inherited from Session
+# todo P3 separate get vpcs from get sec-groups
+def get_vpcs_and_secgroups(session=None):
     """
     Get the VPCs and security groups from the current AWS account
 
     Args:
-        aws_session (boto3/Session):  A Session init'ed with API keys and region name
+        session (boto3/Session):  A Session init'ed with API keys and region name
 
     Returns: vpcsCollection security_groupsCollection
 
@@ -222,10 +224,10 @@ def get_vpcs_and_secgroups(aws_session=None):  # todo validate region inherited 
 
     # todo check for vpcs with 0 instances and filter them
 
-    if not aws_session:
+    if not session:
         sys.exit('*** No valid EC2 session available, aborting...')
 
-    ec2_resource = aws_session.resource('ec2')
+    ec2_resource = session.resource('ec2')
 
     vpcs = ec2_resource.vpcs.all()  # .all() returns an iterable of all VPC objects associated w/the aws VPC
     sec_groups = ec2_resource.security_groups.all()
@@ -291,7 +293,7 @@ def create_gateway_name(route):
     return ':'.join(name_components)
 
 
-def get_subnet_data(networks, vpc):
+def get_subnets(networks, vpc):
     """
     enumerate subnets in a given VPC, subsequently extract security groups (per subnet) and install in a dict of
     networkx network objects
@@ -332,6 +334,22 @@ def get_subnet_data(networks, vpc):
                 logger.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
 
         networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
+
+
+def get_nacls(vpcs):
+    """
+    Get network ACL data ...
+
+    Args:
+        vpcs (boto3.Collection.Vpc):  The VPC from which to get NACL data
+
+    Returns: todo
+
+    """
+
+    for vpc in vpcs:
+        for acl in vpc.network_acls.all():
+            logger.info('**NACL** id {}, name {}'.format(acl.id, get_aws_object_name(acl.tags)))
 
 
 def get_vpc_endpoint_data(network, vpc, aws_session):
@@ -811,7 +829,7 @@ def add_non_pcx_edges(network, vpc):
                     logger.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
-def add_pcx_edges(network):
+def add_pcx_edges(network, vpc):
     """
     add connections for vpc peering connections (pcx)
 
@@ -822,6 +840,7 @@ def add_pcx_edges(network):
     added relative to adding edges to them - see add_non_pcx_edges()
 
     Args:
+        vpc (boto3.Vpc): used for logging purposes
         network (networkx.Graph): Graph containing data about the network topo of a given VPC
 
     Returns: None
@@ -848,12 +867,14 @@ def add_pcx_edges(network):
 
                 if nexthop_name.startswith('pcx'):
                     network.add_edge(router, nexthop_name)  # +edge: current rtb and the gw (next hop)
-                    logger.info('Added edge {} - {}'.format(router, nexthop_name))
+                    logger.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
 def build_nets(networks, vpcs, session=None):
     """
     Gather the network topology data used later for analysis and visualization
+
+    This function drives the data collection by calling other functions that actually do the work
 
     One networkx.Graph object per aws VPC, each one contains topology/node data, e.g. subnets, route-tables
     (aka routers), vpc endpoints, etc.  Also associates relevant metadata with the nodes, which is used later
@@ -882,7 +903,7 @@ def build_nets(networks, vpcs, session=None):
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
         # sec_groups = get_subnet_data(networks, vpc)
-        get_subnet_data(networks, vpc)
+        get_subnets(networks, vpc)
 
         get_vpc_endpoint_data(network, vpc, session)
 
@@ -908,7 +929,7 @@ def build_nets(networks, vpcs, session=None):
 
         add_non_pcx_edges(network, vpc)
 
-        add_pcx_edges(network)
+        add_pcx_edges(network, vpc)
 
         # todo P1 add handling of edges to: nat-inst, ???
 
