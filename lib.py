@@ -488,13 +488,14 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
             logger.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
 
 
-def add_route_table_node(network, route_table):
+def add_route_table_node(network, vpc, route_table):
     """
     add the route-table node type to the network graph
 
     Also extracts the AWS RouteTable name from the tags attribute and adds that data
 
     Args:
+        vpc:
         network (networkx.Graph): graph representing the VPC topo and holding assocaited meta-data
         route_table (boto3.RouteTable): the route table to add to network graph
 
@@ -503,12 +504,12 @@ def add_route_table_node(network, route_table):
     """
 
     # setup local variables
-    route_table_id = route_table.id
     route_table_name = get_aws_object_name(route_table.tags)
 
     # add "router" to the graph (AWS route table)
-    network.add_node(route_table_id)
-    network.node[route_table_id]['name'] = route_table_name
+    network.add_node(route_table.id)
+    network.node[route_table.id]['name'] = route_table_name
+    logger.info('Added node {} to vpc: {}'.format(route_table.id, vpc.id))
 
 
 def get_route_table_subnet_associations(network, vpc, route_table):
@@ -675,7 +676,7 @@ def get_router_data(network, vpc):
 
     for route_table in vpc.route_tables.all():
 
-        add_route_table_node(network, route_table)
+        add_route_table_node(network, vpc, route_table)
 
         # get the subnet associations data object from AWS API and iterate over it to extract useful info
         get_route_table_subnet_associations(network, vpc, route_table)
