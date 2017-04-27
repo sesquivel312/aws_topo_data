@@ -317,6 +317,7 @@ def get_subnet_data(networks, vpc):
                           'state': subnet.state, 'assoc_route_table': None}
 
         networks[vpc.id].add_node(subnet.id, **subnet_attribs)
+        logger.info('Added node {} to vpc {}'.format(subnet.id, vpc.id))
 
         sec_group_set = set([])  # set of all security groups in this subnet
 
@@ -327,11 +328,12 @@ def get_subnet_data(networks, vpc):
             # todo P1 add NAT instances as network nodes - check source/dest-check instance proprty to identify natinst
             for group in instance.security_groups:
                 sec_group_set.add(group['GroupId'])
+                logger.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
 
         networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
 
 
-def get_vpc_endpoint_data(network_obj, vpc_id, aws_session):
+def get_vpc_endpoint_data(network, vpc, aws_session):
     """
     add all vpc endpoints in the VPC to the network graph
 
@@ -340,25 +342,35 @@ def get_vpc_endpoint_data(network_obj, vpc_id, aws_session):
     :param vpc_id (string): id of the VPC from which to extract vpce data
     :param aws_session (boto3/Session): boto3 Session object initialized with API keys, region, etc.
     :return: None
+    Args:
+        network (networkx.Graph): Graph into which vpce data for a given VPC will be placed
+        vpc (boto3.Vpc): the relevant AWS VPC
+        aws_session (boto3.Session): session object initialized with api keys, region, etc.
+
+    Returns:None
+
     """
 
     ec2_client = aws_session.client('ec2')
 
-    filter = [{'Name': 'vpc-id', 'Values': [vpc_id]}]
+    filter = [{'Name': 'vpc-id', 'Values': [vpc.id]}]
 
     ep_data = ec2_client.describe_vpc_endpoints(Filters=filter)
     ep_list = ep_data['VpcEndpoints']  # only need the list todo P2 address paging
 
     for ep in ep_list:
         ep_attribs = {'service_name': ep['ServiceName'], 'state': ep['State'], 'route_table_ids': ep['RouteTableIds']}
-        network_obj.add_node(ep['VpcEndpointId'], attr_dict=ep_attribs)
+        network.add_node(ep['VpcEndpointId'], attr_dict=ep_attribs)
+        logger.info('Added node {} to vpc: {}'.format(ep, vpc.id))
 
 
 def get_customer_gw_data():  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
+    # todo P2 determine if we need customer gateway data, add code to handle if so
     pass
 
 
 def get_vpn_connection_data():  # are these outside the VPC?
+    # todo P2 determine if we need to handle vpn connections, add code to handle if yes
     pass
 
 
@@ -852,7 +864,7 @@ def build_nets(networks, vpcs, aws_session=None):
         # sec_groups = get_subnet_data(networks, vpc)
         get_subnet_data(networks, vpc)
 
-        get_vpc_endpoint_data(network, vpcid, aws_session)
+        get_vpc_endpoint_data(network, vpc, aws_session)
 
         get_customer_gw_data()  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
 
