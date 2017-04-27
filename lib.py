@@ -687,13 +687,14 @@ def get_router_data(network, vpc):
         get_route_table_routes(network, vpc, route_table)
 
 
-def add_explicit_subnet_edges(network):
+def add_explicit_subnet_edges(network, vpc):
     """
     add edges between route-tables and subnets that are explicitly associated
 
     NB: subnets in AWS that are not configured with an association are implicitly associated w/the main route table
 
     Args:
+        vpc (boto3.Vpc): currently use vpc.id for logging purposes only
         network (networkx.Graph): Network representing the VPC containing the subnets to which edges will be added
 
     Returns: None
@@ -704,14 +705,15 @@ def add_explicit_subnet_edges(network):
 
     for cur_node in node_dict:
         if get_node_type(cur_node) == 'router':  # add edges from route-table (router) nodes
-            rtb_id = cur_node
+            route_table = cur_node
             subnets = node_dict[cur_node]['assoc_subnets']
             if len(subnets):  # verify there are subnets in the list
                 for subnet in subnets:
-                    network.add_edge(rtb_id, subnet)
+                    network.add_edge(route_table, subnet)
+                    logger.info('Added edge {} - {} in vpc {}'.format(route_table, subnet, vpc.id))
 
 
-def add_implicit_subnet_edge(network):
+def add_implicit_subnet_edge(network, vpc):
     """
     add network edges for subnets not explicitly associated with a route table
 
@@ -727,6 +729,7 @@ def add_implicit_subnet_edge(network):
 
 
     Args:
+        vpc (boto3.Vpc): currently use the vpc.id for logging purposes only
         network (networkx.Graph):  Graph holding network topo metadata for a given VPC
 
     Returns: None
@@ -745,6 +748,7 @@ def add_implicit_subnet_edge(network):
 
             if not node_dict[subnet_id]['assoc_route_table']:
                 network.add_edge(subnet_id, main_route_table_id)
+                logger.info('Added edge {} - {} in vpc {}'.format(subnet_id, main_route_table_id, vpc.id))
 
 
 def add_non_pcx_edges(network):
@@ -897,9 +901,9 @@ def build_nets(networks, vpcs, session=None):
 
         get_peering_conn_data(network, vpc)
 
-        add_explicit_subnet_edges(network)
+        add_explicit_subnet_edges(network, vpc)
 
-        add_implicit_subnet_edge(network)
+        add_implicit_subnet_edge(network, vpc)
 
         add_non_pcx_edges(network)
 
