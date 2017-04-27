@@ -751,7 +751,7 @@ def add_implicit_subnet_edge(network, vpc):
                 logger.info('Added edge {} - {} in vpc {}'.format(subnet_id, main_route_table_id, vpc.id))
 
 
-def add_non_pcx_edges(network):
+def add_non_pcx_edges(network, vpc):
     """
     add connections for node types OTHER THAN vpc peering connections (pcx)
 
@@ -765,6 +765,7 @@ def add_non_pcx_edges(network):
     over it's routes, grabbing the next hop information.  For NH's other than pcx's, add an edge for them
 
     Args:
+        vpc (boto3.Vpc): currently used for logging purposes only
         network (networkx Graph): a Graph object from which to extract route data
 
     Returns: None
@@ -807,7 +808,7 @@ def add_non_pcx_edges(network):
 
                 else:  # else add an edge
                     network.add_edge(router, nexthop_name)
-                    logger.info('Added edge {} - {}'.format(router, nexthop_name))
+                    logger.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
 def add_pcx_edges(network):
@@ -905,7 +906,7 @@ def build_nets(networks, vpcs, session=None):
 
         add_implicit_subnet_edge(network, vpc)
 
-        add_non_pcx_edges(network)
+        add_non_pcx_edges(network, vpc)
 
         add_pcx_edges(network)
 
