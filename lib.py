@@ -572,6 +572,7 @@ def get_route_table_subnet_associations(network, vpc, route_table):
             # if the id of the main route-table hasn't been set at the network (Graph) level yet, then set it
             if not network_data_dict['main_route_table']:
                 network_data_dict['main_route_table'] = route_table.id
+                logger.info('Updated main route table to {} for vpc {}'.format(route_table.id, vpc.id))
 
             # found another route table claiming to be main *with the same ID* as one found previously
             # I believe this should not occur so logging it if it does
@@ -783,7 +784,7 @@ def add_non_pcx_edges(network):
                 if nexthop_name.startswith('pcx'):
                     # eventually just skip pcx'es
                     logger.info(
-                        'got nexthop type pcx: {} in rtb: {}, not handled by this function(add_non_peer_conn_edges). '
+                        'Got nexthop type pcx: {} in rtb: {}, not handled by this function(add_non_peer_conn_edges). '
                         'should be added later'.format(nexthop_name, router))
 
                 # local is the route for the CIDR block attacked to the VPC itself, seems something like a hold down
