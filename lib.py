@@ -843,17 +843,21 @@ def add_pcx_edges(network):
                     logger.info('Added edge {} - {}'.format(router, nexthop_name))
 
 
-def build_nets(networks, vpcs, aws_session=None):
+def build_nets(networks, vpcs, session=None):
     """
-    populate networkx network object w/topology data and associated meta-data
+    Gather the network topology data used later for analysis and visualization
 
-    networkx network object per aws VPC, each networkx network object contains topology data (subnets, routes, network
-    "devices") as well as metadata including security group information
+    One networkx.Graph object per aws VPC, each one contains topology/node data, e.g. subnets, route-tables
+    (aka routers), vpc endpoints, etc.  Also associates relevant metadata with the nodes, which is used later
+    by code that analyzes the topology and, optionally, renders it for visualization by humans.
 
-    :param networks: dict of networkx network objects
-    :param vpcs: iterable of boto3 vpc objects
-    :param aws_session: boto3 session object
-    :return: n/a
+    Args:
+        networks (dict(networkx.Graph)):  each Graph holds the topo data for a given AWS VPC
+        vpcs (boto3.Collection):  iterator of boto3.Vpc objects - from which most/all of the topo data comes
+        session (boto3.Session): session object initialized with api keys and region information
+
+    Returns: None
+
     """
 
     # todo verify correct handling of VPN gateways
@@ -872,17 +876,17 @@ def build_nets(networks, vpcs, aws_session=None):
         # sec_groups = get_subnet_data(networks, vpc)
         get_subnet_data(networks, vpc)
 
-        get_vpc_endpoint_data(network, vpc, aws_session)
+        get_vpc_endpoint_data(network, vpc, session)
 
         get_customer_gw_data()  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
 
-        get_vpn_gw_data(networks, vpc, aws_session)  # find the vpn gw's and add to networkx graph
+        get_vpn_gw_data(networks, vpc, session)  # find the vpn gw's and add to networkx graph
 
         get_vpn_connection_data()  # are these outside the VPC?
 
         get_inetgw_data(networks, vpc)  # find internet gw's and add to network
 
-        get_nat_gateways(network, vpc, aws_session)
+        get_nat_gateways(network, vpc, session)
 
         # handle routers last as the function retrieving router data currently depends on the existence of all the other
         # node types
