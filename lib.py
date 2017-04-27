@@ -539,10 +539,8 @@ def get_route_table_subnet_associations(network, vpc, route_table):
     """
 
     # set up some local and/or more obvious variable/object names
-    route_table_id = route_table.id
-    vpc_id = vpc.id
     network_data_dict = network.graph
-    route_table_data_dict = network.node[route_table_id]
+    route_table_data_dict = network.node[route_table.id]
 
     # add associated subnet list to the route table data, associated means *explicitly* configured via AWS API calls
     route_table_data_dict['assoc_subnets'] = []
@@ -563,9 +561,9 @@ def get_route_table_subnet_associations(network, vpc, route_table):
             # update the assoc_route_table key for the subnet
             # NB: all the subnets have to be added to the network before this happens
             logger.info('Adding route table: {} to assoc_route_table '
-                        'field of subnet: {}'.format(route_table_id, subnet_id))
+                        'field of subnet: {}'.format(route_table.id, subnet_id))
 
-            network.node[subnet_id]['assoc_route_table'] = route_table_id
+            network.node[subnet_id]['assoc_route_table'] = route_table.id
 
         elif main_flag and not subnet_id:  # this is the main rtb for this vpc
             route_table_data_dict['main'] = True
@@ -573,26 +571,26 @@ def get_route_table_subnet_associations(network, vpc, route_table):
             # found 'the' main route table - check for possible error situations, such as two main route tables
             # if the id of the main route-table hasn't been set at the network (Graph) level yet, then set it
             if not network_data_dict['main_route_table']:
-                network_data_dict['main_route_table'] = route_table_id
+                network_data_dict['main_route_table'] = route_table.id
 
             # found another route table claiming to be main *with the same ID* as one found previously
             # I believe this should not occur so logging it if it does
-            elif network_data_dict['main_route_table'] == route_table_id:  # found another, matching "main" rtb
+            elif network_data_dict['main_route_table'] == route_table.id:  # found another, matching "main" rtb
                 logger.info('Found main route table multiple times, which should probably not occur.  '
-                            'vpc: {}, rtb: {}'.format(vpc_id, route_table_id))
+                            'vpc: {}, rtb: {}'.format(vpc.id, route_table.id))
 
             # another route table, with a different ID, is claiming to be main
             # this definitely shouldn't happen
             else:
                 logger.info('Found two different main route tables: '
                             'vpc: {}, prev rtb-id: {}, '
-                            'curr rtb-id: {}'.format(vpc_id, route_table_id,
+                            'curr rtb-id: {}'.format(vpc.id, route_table.id,
                                                      network_data_dict['main_route_table']))
 
         # not main & no subnet OR main and subnet are nonsensical combo's alert (at least AFAIK)
         else:
             logger.info('Found possibly malformed subnet association data.  '
-                        'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc_id, route_table_id, main_flag,
+                        'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc.id, route_table.id, main_flag,
                                                                                 subnet_id))
 
 
