@@ -391,13 +391,12 @@ def get_vpn_gw_data(networks, vpc, session):
     """
 
     # setup some useful local variables
-    vpc_id = vpc.id
-    network = networks[vpc_id]
+    network = networks[vpc.id]
 
     # must use ec2.client in order to access vpn gateway info
     ec2_client = session.client('ec2')
 
-    filters = [{'Name': 'attachment.vpc-id', 'Values': [vpc_id]}]
+    filters = [{'Name': 'attachment.vpc-id', 'Values': [vpc.id]}]
 
     returned_data_dict = ec2_client.describe_vpn_gateways(Filters=filters)
 
