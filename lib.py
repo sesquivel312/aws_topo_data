@@ -58,6 +58,7 @@ import matplotlib.pyplot as plot
 # todo P3 logging - generally improve - in particular how it's 'shared' between the driver script and this module
 # todo P3 logging - factor logging setup out of global name space and make configurable via CLI and file
 # todo P3 generalize this away from AWS specifically
+# todo P3 logging - factor out logging in each function to a utility function so calls w/in functions are "the same"?
 
 LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
@@ -411,6 +412,7 @@ def get_vpn_gw_data(networks, vpc, session):
         vpngw_attributes = {'name': vpn_gw_name, 'state': vpn_gw['State'], 'avail_zone': vpn_gw.get('AvailabilityZone'),
                             'vpc_attachments': vpn_gw['VpcAttachments']}
         network.add_node(vpn_gw_id, **vpngw_attributes)
+        logger.info('Added node {} to vpc: {}'.format(vpn_gw_id, vpc.id))
 
 
 def get_nat_gateways(network_obj, vpc_id, aws_session):
