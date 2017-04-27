@@ -445,10 +445,10 @@ def get_nat_gateways(network, vpc, session):
         logger.info('Added node {} to vpc: {}'.format(natgw_name, vpc.id))
 
 
-
 def get_inetgw_data(networks, vpc):
     for gateway in vpc.internet_gateways.all():
         networks[vpc.id].add_node(gateway.id)
+        logger.info('Added node {} to vpc: {}'.format(gateway.id, vpc.id))
 
 
 def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
@@ -890,8 +890,6 @@ def build_nets(networks, vpcs, session=None):
 
         # handle routers last as the function retrieving router data currently depends on the existence of all the other
         # node types
-        # add edges - may also want to completely separate edge adds from node adds
-        # add route tbls to graph & edges between rtb's, subnets, igw's & vgw's
         get_router_data(network, vpc)
 
         get_peering_conn_data(network, vpc)
