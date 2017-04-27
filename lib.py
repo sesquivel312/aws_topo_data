@@ -415,28 +415,35 @@ def get_vpn_gw_data(networks, vpc, session):
         logger.info('Added node {} to vpc: {}'.format(vpn_gw_id, vpc.id))
 
 
-def get_nat_gateways(network_obj, vpc_id, aws_session):
+def get_nat_gateways(network, vpc, session):
     """
     add nat gateway nodes to network, along w/any pertinent meta data
 
-    NB: using session b/c I can't find any reference to nat gateways in the ec2-resource docs
+    Using session b/c I can't find any reference to nat gateways at the Boto3.Resource level
 
-    :param network_obj: a networkx graph representing the network topo in a single VPC
-    :param aws_session: a boto3 session object
-    :return:
+    Args:
+        network (networkx.Graph): Graph holding topo data for a given AWS VPC
+        vpc (boto3.Vpc): the relevant VPC
+        session (boto3.Session): session object initialized with api keys, region, etc.
+
+    Returns: None
+
     """
 
     # create the client from session
-    ec2_client = aws_session.client('ec2')
+    ec2_client = session.client('ec2')
 
     # get natgw iterable for this vpc  (list of dicts
-    natgw_dict = ec2_client.describe_nat_gateways(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id, ]}])
+    natgw_dict = ec2_client.describe_nat_gateways(Filters=[{'Name': 'vpc-id', 'Values': [vpc.id, ]}])
     natgw_list = natgw_dict['NatGateways']  # list of dicts containing attributes of a given nat gateway
 
     # loop over and add as nodes, collecting desired metadata
     for gateway in natgw_list:
+        natgw_name = gateway['NatGatewayId']
         attributes = {'state': gateway['State']}
-        network_obj.add_node(gateway['NatGatewayId'], **attributes)
+        network.add_node(natgw_name, **attributes)
+        logger.info('Added node {} to vpc: {}'.format(natgw_name, vpc.id))
+
 
 
 def get_inetgw_data(networks, vpc):
@@ -875,7 +882,7 @@ def build_nets(networks, vpcs, aws_session=None):
 
         get_inetgw_data(networks, vpc)  # find internet gw's and add to network
 
-        get_nat_gateways(network, vpc.id, aws_session)
+        get_nat_gateways(network, vpc, aws_session)
 
         # handle routers last as the function retrieving router data currently depends on the existence of all the other
         # node types
