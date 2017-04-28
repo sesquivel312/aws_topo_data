@@ -80,7 +80,7 @@ def get_args():
     parser.add_argument('--export-network-to-yaml', help='flag indicating network data should be exported to a YAML '
                                                          'file in the directory indicated by --output-dir (or current '
                                                          'directory if not specified', action='store_true')
-    parser.add_argument('--csv-file', help='Export rules to csv formatted file named by the value to this argument')
+    parser.add_argument('--export-rules', help='Export rules to csv formatted file named by the value to this argument')
     parser.add_argument('--log-file', help='Path of file to place log ouput, defaults to output.log')
 
     return parser.parse_args()
@@ -334,22 +334,6 @@ def get_subnets(networks, vpc):
                 logger.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
 
         networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
-
-
-def get_nacls(vpcs):
-    """
-    Get network ACL data ...
-
-    Args:
-        vpcs (boto3.Collection.Vpc):  The VPC from which to get NACL data
-
-    Returns: todo
-
-    """
-
-    for vpc in vpcs:
-        for acl in vpc.network_acls.all():
-            logger.info('**NACL** id {}, name {}'.format(acl.id, get_aws_object_name(acl.tags)))
 
 
 def get_vpc_endpoint_data(network, vpc, aws_session):
@@ -695,7 +679,6 @@ def get_router_data(network, vpc):
     # todo (cont'd) in case that looks different - i.e. puts the routes in the route-table as usual
 
     for route_table in vpc.route_tables.all():
-
         add_route_table_node(network, vpc, route_table)
 
         # get the subnet associations data object from AWS API and iterate over it to extract useful info
@@ -893,7 +876,6 @@ def build_nets(networks, vpcs, session=None):
     # todo P3 get NACL's
 
     for vpc in vpcs:
-
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
         vpc_attribs = {'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
@@ -967,22 +949,36 @@ def get_port_range(rule):
     return port_range
 
 
-def get_source_ranges(rule):
-    src_ranges = []  # gather srcs (curr aws allows only 1)
+def get_rule_add_range(rule):
+    """
+    gets the address range associated with a rule
+
+    NB: the address range could be a source or dest range, but that is determined by calling functions
+
+    Args:
+        rule (???):
+
+    Returns (list): list of address ranges
+
+    """
+    ranges = []  # gather srcs (curr aws allows only 1)
 
     for ip_range in rule['IpRanges']:  # ip ranges are list of dicts, which contain a single key 'cidrip'
-        src_ranges.append(ip_range['CidrIp'])
+        ranges.append(ip_range['CidrIp'])
 
-    return src_ranges
+    return ranges
 
 
-def get_source_sec_groups(rule, sec_group_data_dict):
+def get_source_sec_groups(rule, security_groups):
     """
     get a list of the security groups in the source "field" of the rule
 
-    :param rule: a boto3.ec2.security_group.ip_permissions object (or ip_permissions_egress too)
-    :param sec_group_data_dict: a dictionary containing relevant security group data points, indexed by group ID
-    :return:
+    Args:
+        rule (boto3.EC2.SecurityGroup.ip_permissions/ip_permissions_egress): list(dicts) cont. sec-group access rules
+        security_groups (dict): contains security-group data
+
+    Returns (list): security-groups in the source of a rule
+
     """
 
     src_sec_groups = []  # gather (acct, sg_id) tuples, this is probably mutex with ip ranges
@@ -991,7 +987,7 @@ def get_source_sec_groups(rule, sec_group_data_dict):
 
         for uid_group_pair in rule['UserIdGroupPairs']:
             group_id = uid_group_pair['GroupId']
-            group_name = lookup_sec_group_data(group_id, sec_group_data_dict)
+            group_name = lookup_sec_group_data(group_id, security_groups)
             user_id = uid_group_pair['UserId']
             src_sec_groups.append((user_id, group_id, group_name))
 
@@ -999,78 +995,86 @@ def get_source_sec_groups(rule, sec_group_data_dict):
 
 
 # todo refactor to take only sec_group_ID and sec_group data dict - b/c the permissions are already in the latter
-def get_access_rules(sec_group_id, permission_list, sec_group_data_dict):  # helper func for build_subnet_rules
+def get_access_rules(sec_group_id, permission_list, security_groups):  # helper func for build_subnet_rules
     """
-    return data associated with access rules in an aws boto3.ec2.security_group.ip_pmissions (and egreess)
+     return data associated with access rules in an aws boto3.ec2.security_group.ip_pmissions (and egreess)
 
     NB: rule order does not matter in AWS SG ACL's b/c only permits are allowed
 
-    :param sec_group_id: security group identifier (string)
-    :param permission_list: boto3.ec2.security_group.ip_permissions (or ip_permissions_egress) data item
-    from the security group identified by 'sec_group_id'
-    :param sec_group_data_dict:
-    :return: rules data structure containing all rules for a given sec group
-    """
-    extracted_rules = []  # list of rules, rule is a dict with sec_grp_id, sources, proto and port info
+    Args:
+        sec_group_id (string): aws security group ID
+        permission_list (boto3.Ec2.SecurityGroup.ip_permissions): list(dicts) cont'g access rules
+        security_groups (dict): contains security-group data
 
-    for rule in permission_list:  # from boto3.ec2.SecurityGroup.ip_permissions[_egress], itself a list of dicts
+    Returns (list): rules in a flattened, more useful format
+
+    """
+    rules = []  # list of rules, rule is a dict with sec_grp_id, sources, proto and port info
+
+    for rule in permission_list:
 
         # get the proto name
-        proto = replace_negative_one_with_all(rule['IpProtocol'])
+        proto_name = replace_negative_one_with_all(rule['IpProtocol'])
 
         # get port range
         port_range = get_port_range(rule)
 
         # get the sources, which may be cidr blocks or security groups
-        src_sec_groups = get_source_sec_groups(rule, sec_group_data_dict)
+        src_sec_groups = get_source_sec_groups(rule, security_groups)
 
-        src_ranges = get_source_ranges(rule)
-        src_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
+        add_ranges = get_rule_add_range(rule)
+        add_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
 
-        extracted_rules.append({'sgid': sec_group_id, 'source': src_ranges, 'proto': proto,
+        rules.append({'sgid': sec_group_id, 'src_dst': add_ranges, 'proto': proto_name,
                                 'ports': port_range})
 
-    return extracted_rules
+    return rules
 
 
-def build_sec_group_rule_dict(sec_group_data):
+def build_sec_group_rule_dict(security_groups):
     """
-    extract pertinent info from aws security group rules
+    extract pertinent info from aws security group rules and store in a more useful form
 
-    :param sec_group_data: dict of aws security group data (direct from aws SDK)
-    :return: dict of rules by security group and grouped by direction (inacl, outacl)
+    Args:
+        security_groups (dict): contains security group data
+
+    Returns (dict): security group rules
+
     """
 
-    # temp holding place before assignment as attributes of networkx node representing a subnet
-    sec_group_rule_dict = {}
+    # place to put the rule data
+    rules = {}
 
-    # prebuild a reformatted set of rules for the security group
-    for sec_group in sec_group_data:
-        sec_group_rule_dict[sec_group.id] = {}
+    for sec_group in security_groups:
+        rules[sec_group.id] = {}
 
         # get rules in more concise form & assign to new fields in sg_rules
-        sec_group_rule_dict[sec_group.id]['inacl'] = get_access_rules(sec_group.id, sec_group.ip_permissions,
-                                                                      sec_group_data)
+        rules[sec_group.id]['inacl'] = get_access_rules(sec_group.id, sec_group.ip_permissions, security_groups)
 
-        sec_group_rule_dict[sec_group.id]['outacl'] = get_access_rules(sec_group.id, sec_group.ip_permissions_egress,
-                                                                       sec_group_data)
+        rules[sec_group.id]['outacl'] = get_access_rules(sec_group.id, sec_group.ip_permissions_egress, security_groups)
 
-    return sec_group_rule_dict
+    return rules
 
 
-def collect_subnet_rules(networks, sec_group_data):
+def collect_sec_group_rules_by_subnet(networks, sec_group_data):
     """
-    extract security group rules for a subnet from instance data and insert into the appropriate networkx data fields
+    extract security group rules for a subnet from instance data and insert into the data model
 
     Finds the security groups associated with a given subnet and for each it extracts the associated
-    rules.  Those rules are formatted and added to the networkx graph as an attribute of the associated subnet
+    rules.  Those rules are formatted and added to the networkx graph, for a given VPC, as an attribute of the
+    associated subnet
 
-    :param networks: dictionary of networks, which are networkx graphs
-    :param sec_group_data:  iterable of aws/boto3 security group objects
-    :return: nothing
+    Args:
+        networks (dict): network node data
+        sec_group_data (boto3 collection(sec-groups): iterable that returns the security groups associated with a vpc
+
+    Returns: None
+
     """
+    # todo P3 determine if this can/should be refactored to use the collection of VPCs, similar to the nacl function
+    # todo rename inacl to sg-inacl, similar for outacl, to distinguish from network acls
 
-    sg_rules = build_sec_group_rule_dict(sec_group_data)  # build the idict of rules, to be indexed by sec_group ID
+    sg_rules = build_sec_group_rule_dict(sec_group_data)  # build the dict of rules, to be indexed by sec_group ID
 
     # for each subnet node in a network, loop over the security groups of that subnet and pull the rules from the
     # rules dict created above
@@ -1087,6 +1091,30 @@ def collect_subnet_rules(networks, sec_group_data):
                 for sg_id in curr_node['sec_groups']:  # loop over set of sg's assoc. with this subnet
                     curr_node['inacl'].extend(sg_rules[sg_id]['inacl'])  # add sg inacl to subnet inacl
                     curr_node['outacl'].extend(sg_rules[sg_id]['outacl'])  # add sg inacl to subnet inacl
+
+
+def get_nacls(vpcs):
+    """
+    Get network ACL data and add to network topo data
+
+    The NACLs are at the VPC level.  Each lists the subnets to which it applies.  This function will get the NACLs
+
+    A later function will "copy" this data to the subnet leve of the data model so that it can be referenced from either
+    direction (subnet > nacls or nacl > subnets
+
+    Args:
+        vpcs (boto3.Collection.Vpc):  The VPC from which to get NACL data
+
+    Returns: todo
+
+    """
+
+    for vpc in vpcs:
+        for acl in vpc.network_acls.all():
+            logger.info('**NACL** id {}, net_acl_id {}, name {}'.format(acl.id, acl.network_acl_id,
+                                                                        get_aws_object_name(acl.tags)))
+            for subnet_assoc in acl.associations:
+                logger.info('**NACL SN ASSOC** {}'.format(subnet_assoc['SubnetId']))
 
 
 def render_gexf(networks, out_dir_string):
@@ -1148,17 +1176,17 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
     f = open(outfile, 'w')
     csvwriter = csv.writer(f, lineterminator='\n')
 
-    csvwriter.writerow('vpc_id subnet_id sec_group_id direction rule_num sources protocol port_range'.split())
+    csvwriter.writerow('vpc_id subnet_id sec_group_id direction rule_num src_dst protocol port_range'.split())
 
-    for network_id, network_object in networks.items():
+    for net_id, network in networks.items():
 
-        for node, data in network_object.nodes_iter(data=True):  # get 2tuples of node, assoc data and loop over 'em
+        for node, data in network.nodes_iter(data=True):  # get 2tuples of node, assoc data and loop over 'em
             if node.startswith('subnet'):  # if subnet, then get rules
                 for acl in data['inacl']:  # inbound acl first
-                    csvwriter.writerow([network_id, node, acl['sgid'], 'in', acl['source'], acl['proto'],
+                    csvwriter.writerow([net_id, node, acl['sgid'], 'in', acl['src_dst'], acl['proto'],
                                         acl['ports']])
                 for acl in data['outacl']:  # inbound acl first
-                    csvwriter.writerow([network_id, node, acl['sgid'], 'out', acl['source'], acl['proto'],
+                    csvwriter.writerow([net_id, node, acl['sgid'], 'out', acl['src_dst'], acl['proto'],
                                         acl['ports']])
 
     f.flush()
@@ -1173,6 +1201,7 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
         output_dir = os.path.curdir
 
     if not graph_format and yaml_export:  # no format specified, but yaml output requested (--export-to-yaml)
+        logger.info('Render to YAML only')
         for net_name, network in networks.iteritems():  # todo add code to actually export to yaml
             print net_name, ': '
             pp.pprint(network.graph)
@@ -1195,30 +1224,36 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
 
     elif graph_format == 'gephi':
         if yaml_export:
+            logger.info('Render to Gephi and YAML')
             for network in networks.values():
                 render_gexf(network, output_dir)
                 # add yaml export code
         else:
+            logger.info('Render to Gephi only')
             for network in networks.values():
                 render_gexf(network, output_dir)
 
     elif graph_format == 'pyplot':
         if yaml_export:
+            logger.info('Render to PyPlot and YAML')
             for network in networks.values():
                 render_pyplot(network, output_dir)
                 # add yaml export code
         else:
+            logger.info('Render to PyPlot only')
             for network in networks.values():
                 render_pyplot(network, output_dir)
 
     elif graph_format is not None:
-        print 'unknown output format requested: ', graph_format
+        logger.warning('Render - unknown format requested: {}'.format(graph_format))
 
-    if csv_file is not None:  # should be None if option not specified, otherwise it's a filename with opt. path
+    if csv_file:  # should be None if option not specified, otherwise it's a filename with opt. path
 
         # todo if keeping this feature, enhance it to handle "all" cases of path/filename that may be handed to it
         if os.path.split(csv_file)[0] == '':  # got file name only if path part is empty
             csv_file = os.path.join(output_dir, csv_file)  # save with other output files
+
+        logger.info('Render export rules to CSV file {}'.format(csv_file))
 
         export_sgrules_to_csv(networks, outfile=csv_file)
 

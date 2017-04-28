@@ -8,7 +8,7 @@
 # todo colorize the edges based on destination, e.g. red for lines to IGW, VPN, etc.
 
 import sys
-import pprint as pp
+import pdb
 
 import boto3
 
@@ -37,13 +37,14 @@ lib.get_nacls(vpcs)
 # collect all the topo and related meta data
 lib.build_nets(networks, vpcs, aws_session)
 
+lib.collect_sec_group_rules_by_subnet(networks, sec_groups)
+
+# dump network data to file
 with open('output/net-dump.out', 'w') as f:
     lib.dump_network_data(networks, f)
 
-lib.collect_subnet_rules(networks, sec_groups)
-
 lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, yaml_export=args.export_network_to_yaml,
-                csv_file=args.csv_file)
+                csv_file=args.export_rules)
 
 # need to finish this function up before I use it :)
 lib.execute_rule_checks(networks)
