@@ -45,10 +45,15 @@ import pprint as pp
 
 import pdb
 
+import netaddr
 import networkx as nx
 import matplotlib.pyplot as plot
 
+# todo P1 identify that ELB's exist
+# todo P1 identify that WAF/Shield is configured
 # todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
+# todo P2 add full LB support
+# todo P2 add full WAF & sheild support
 # todo P2 Add a name key to all nodes in the network graph (currently only added to the route-table nodes)
 # todo P2 update rendering functions to use node names rather than ID's\
 # todo P3 optimize data collection - e.g. currently looping network nodes multiple times to add edges of diff types
@@ -691,6 +696,62 @@ def get_router_data(network, vpc):
         get_route_table_routes(network, vpc, route_table)
 
 
+def get_elb_classics(network, vpc):
+    """
+    TBD
+
+    Args:
+        network:
+        vpc:
+
+    Returns:
+
+    """
+    logger.info('Coming Soon - ELB classic identification')
+
+
+def get_elb_albs(network, vpc):
+    """
+    TBD
+
+    Args:
+        network:
+        vpc:
+
+    Returns:
+
+    """
+    logger.info('Coming Soon - ALB (ELBv2) identification')
+
+
+def get_wafs(network, vpc):
+    """
+    TBD
+
+    Args:
+        network:
+        vpc:
+
+    Returns:
+
+    """
+    logger.info('Coming Soon - WAF identification')
+
+
+def get_shield(network, vpc):
+    """
+    TBD
+
+    Args:
+        network:
+        vpc:
+
+    Returns:
+
+    """
+    logger.info('Coming Soon - AWS Sheild identification')
+
+
 def add_explicit_subnet_edges(network, vpc):
     """
     add edges between route-tables and subnets that are explicitly associated
@@ -907,6 +968,14 @@ def build_nets(networks, vpcs, session=None):
         get_router_data(network, vpc)
 
         get_peering_conn_data(network, vpc)
+
+        get_elb_classics(network, vpc)  # doesn't do anything useful yet
+
+        get_elb_albs(network, vpc)  # doesn't do anything useful yet
+
+        get_wafs(network, vpc)  # doesn't do anything useful yet
+
+        get_shield(network, vpc)  # doesn't do anything useful yet
 
         add_explicit_subnet_edges(network, vpc)
 
@@ -1328,18 +1397,96 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
         export_sgrules_to_csv(networks, outfile=csv_file)
 
 
+def load_yaml_file(file_name):
+    """
+    load a yaml file into a dict and return it
+
+    Args:
+        file_name (string): name of file to load to dict
+
+    Returns:
+
+    """
+
+    with open(file_name) as f:
+        dict = yaml.load(f)
+        return dict
+
+
+def check_ipv4_range_size(ace, threshold):
+    """
+    verify the src/dest ipv4 range is smaller than the threshold
+
+    threshold is a MINIMUM prefix length
+
+    NB: the src/dst is accessed via ace['src_dst'] and *it's a list*.  It may contain CIDR prefixes, security-group
+    ID's and possibly other forms of src/dest information.
+
+    Args:
+        ace (dict): effectively an access control list entry - see the data-model.txt:network/node/subnet/(in|out)acl
+        threshold (int): value of the threshold
+
+    Returns (tuple): 2-tuple, (result, msg), result = pass|fail|other, msg=string message
+
+    """
+    # todo P1 fix this to handle non-CIDR block src-dest items, e.g. security-groups (# of hosts contained?)
+
+    ranges = ace['src_dst']
+
+    for range in ranges:
+
+        if range.startswith('sg'):
+            return 'other', 'Got a security group {}'.format(range)  # todo P1 add handling for security groups
+        elif not '/' in range:
+            return 'other', 'Got an unknown range type {}'.format(range)
+        else:  # todo P1 determine if there are other cases to be handled here
+            cidr = netaddr.IPNetwork(range)
+            if cidr.prefixlen < threshold:
+                return 'fail', range
+
+    return 'pass', range
+
+
+
 def execute_rule_checks(networks):  # figure out what params to pass
+    """
+    function to drive rule checks
 
-    # load port names, which are "high risk" ports w/names from yaml file
-    # create checks - possibly a function per check?
-    # figure out a way to load checks from a file?
+    Args:
+        networks (dict): of networkx.Graph objects containing network topology data
 
-    f = open('ports.yaml')
-    port_dict = yaml.load(f)
-    f.close()
+    Returns:
 
-    # checks to execute:
-    # rules with excessive range: any, or # hosts > T (t = configurable threshold)
-    # rules with "high risk" ports
-    # rules with large src or dst CIDR block
-    #
+    """
+    # todo P2 make this configurable
+    # todo P2 currently seg-group and nacl rule checks are separate - unify - likely means refactoring dict key names
+
+
+    port_dict = load_yaml_file('ports.yaml')
+    thresholds = load_yaml_file('thresholds.yaml')
+
+    logger.info('Loaded check yaml files')
+    logger.info('Initiating rule checks')
+
+    for net, net_data in networks.iteritems():
+        for node, node_data in net_data.node.iteritems():
+            if node.startswith('subnet'):
+                subnet_id = node
+                subnet_data = node_data
+                if subnet_data['inacl']:  # todo P2 refactor this
+                    for entry in subnet_data['inacl']:  # todo P3 collapse these by parameterizing the result text?
+                        result = check_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
+                        if result[0] == 'pass':  # todo P2 determine if need to handle differently
+                            # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
+                            logger.info('Pass IPv4 Range Size for rule {subnet_id}/{sg_id}: '
+                                        '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
+                                                              result_msg=result[1]))
+                        elif result[0] == 'fail':
+                            logger.info('Fail IPv4 Range Size for rule {subnet_id}/{sg_id}: '
+                                        '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
+                                                              result_msg=result[1]))
+                        elif result[0] == 'other':
+                            logger.info('SG Rule {subnet_id}/{sg_id} found something it '
+                                        'could not parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
+                                                                              result_msg=result[1]))
+

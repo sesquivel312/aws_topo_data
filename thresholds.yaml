@@ -1,0 +1,15 @@
+---
+# this file contains thresholds to be used by the script get_topo.py and it's supporting module lib.py
+
+
+
+# v4 prefix length BELOW which the block is considered to big
+# e.g. if the value is 24 then a prefix length of 23 or less is
+# "too big", NB: this is exclusive, i.e. the value itself will NOT
+# throw an alert
+'ip_v4_min_prefix_len': 24
+
+# maximum allowed transport protocol port range.  the range is given by
+# end_port - start_port.  Any port range that is strictly larger will throw
+# an alert.  This does not apply to ICMP
+'port_range_max': 1

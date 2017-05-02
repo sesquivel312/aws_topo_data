@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-# todo: verify refactor of the subnet data gathering is working correctly - in particular the security group list bits
-# todo in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
-# todo refactor node data so it's grouped by type - e.g. data = {'route_tables': {<datahere>}, 'inet_gws': {<datahere>}, ...} << this will allow me to access just those types of nodes, rather than having to iterate and check type
-# todo start looking for "connections" to other accounts - could be other EW accounts but to non-ew accounts would be more interesting
-# todo treat isolated nodes in graphical display, e.g. move to bottom, different color, at least add flag to indicate this
-# todo add different colors/icons to pyplot images based on type of node
-# todo colorize the edges based on destination, e.g. red for lines to IGW, VPN, etc.
+# todo P1 identify subnets that assign public IP's in renderings
+# todo P2 add different colors/icons to pyplot images based on type of node
+# todo P2 colorize the edges based on destination, e.g. red for lines to IGW, VPN, etc.
+# todo P3 in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
+# todo P3 refactor node data so it's grouped by type - e.g. data = {'route_tables': {<datahere>}, 'inet_gws': {<datahere>}, ...} << this will allow me to access just those types of nodes, rather than having to iterate and check type
+# todo P3 start looking for "connections" to other accounts - could be other EW accounts but to non-ew accounts would be more interesting
+# todo P3 handle isolated nodes differently in visualizations, e.g. move to bottom, different color, at least add flag to indicate this
 
 import sys
 import pdb
