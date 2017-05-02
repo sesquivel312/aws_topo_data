@@ -80,6 +80,7 @@ resource "aws_network_acl" "nacl-a1" {
 resource "aws_subnet" "sn-a1" {
 	vpc_id = "${var.vpcid["vpc-a"]}"
 	cidr_block = "172.31.64.0/20"
+	map_public_ip_on_launch = true
 	tags {
 	  Name = "sna1"
 	}

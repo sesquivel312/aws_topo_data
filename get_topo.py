@@ -32,12 +32,13 @@ aws_session = boto3.session.Session(aws_access_key_id=key_id, aws_secret_access_
 # get top level aws objects; they are iterables
 vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 
-lib.get_nacls(vpcs)
 
 # collect all the topo and related meta data
 lib.build_nets(networks, vpcs, aws_session)
 
 lib.collect_sec_group_rules_by_subnet(networks, sec_groups)
+
+lib.get_nacls(networks, vpcs)
 
 # dump network data to file
 with open('output/net-dump.out', 'w') as f:

@@ -48,6 +48,7 @@ sec_group_rule_dict = {
 }
 
 
+
 networkx.Graph:
   graph: (dict) << this is effectively a dict holding arbitrary data, using it here to store VPC information
     vpc: <vpc-id>
@@ -55,6 +56,21 @@ networkx.Graph:
     isdefault: <aws flag indicating this is the default vpc in the account>
     state: <string indicating the state of the aws VPC> << not sure of possible values
     main_route_table: <rtbid>
+    nacls (dict):
+      id (dict):
+        name (string): taken from NetworkAcl.tags
+        default (boolean): True if this is the default NACL for this VPC
+        assoc_subnets (list): list of subnet ID's to which this NACL applies
+        ingress|egress_entries (list): each entry is a dict, one list for ingress rules and one for egress
+          number (int): rule # (determines order?)
+          action (string): allow|deny
+          protocol (string): name of protocol, e.g. tcp, udp, icmp, all
+          ipv4_block (string): source or dest range in CIDR notation, depending on direction of rule
+          ports (tuple): 2tuple of the form (start, end), where the port range is start-end (end=start if one port)
+
+
+
+
 
   node: (dict) << dict of nodes, top level keys are the network nodes, e.g. subnets, vpngws, etc
 
@@ -81,11 +97,18 @@ networkx.Graph:
       assign_publics: ...map_public_ip_on_launch
       state: ...state
       'sec_groups': set(<sec_group_id>,...)  << this is pythong set of unique security groups "attached" to the subnet (via the instances on the subnet)
-      'inacl': <formatted rules stirngs> << extracted from sec_group_rule_dict (defined above)
-      'outacl': "
+      inacl|outacl (list):  list of dicts representing rules, one dict per rule
+        {
+          sgid (string): security group ID, redundant but neecessary for lookups
+          proto (string): all|tcp|ucp|???
+          src_dst (list): list of strings representing CIDR blocks, security groups, ???, for inacl these will be sources, four out acl's they will be destinations
+          ports (tuple): 2-tuple representing the destination port range (dest for both in and out acl's).  a single port is represented by a 2tuple with the same value in both slots
+        }
+
       assoc_route_table: None | <rtb-id> << route table ID of the route table to which this subnet is associated  NB: all subnets are associated with one and only one rtb, but those assocaited w/the "main" rtb in a given vpc are not listed in rtb.associations - i.e. you have to find these by subtracting the set of subnets assocaited with route tables from the list of all subnets :(
 
       sec_groups: python set of boto3.ec2.SecurityGroup.id
+      nacl (string): id of the NACL assocaited with this subnet, or None
 
     <vpngatewayid>: (dict)
       name (string): name of this gateway (from tags with Key = Name)
@@ -103,12 +126,12 @@ networkx.Graph:
 
     <internet_gw_id>: (string)
 
-    <peer_conn_requester--accepter_id>: (dict)
-      accepter_vpc_id: vpc ID of the accepting VPC
-      requester_vpc_id: vpc ID of the requesting VPC
+    <peer_conn_requester/accepter_id> (string): (dict)
+      accepter_vpc_id (string): vpc ID of the accepting VPC
+      requester_vpc_id (string): vpc ID of the requesting VPC
       status: (dict)
-        Code: status code - e.g. peering_connection.status['Code']: pending-acceptance | failed | expired | provisioning | active | deleted | rejected 
-        Message: related message, e.g. pcx.status['Message'] 
+        Code (string): status code - e.g. peering_connection.status['Code']: pending-acceptance | failed | expired | provisioning | active | deleted | rejected 
+        Message (string): related message, e.g. pcx.status['Message'] 
 
     <vpce (endpoint) ID vpce_xxxx> (dict):
       # add vpcid - would be redundant but easire to use when iterating over vpce's

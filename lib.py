@@ -205,6 +205,9 @@ def dump_network_data(networks, f):
 
     for id, net in networks.iteritems():
         f.write('======= Dumping VPC: {} =======\n'.format(net.graph['vpc']))
+        f.write('== VPC Level Data ==\n')
+        pp.pprint(net.graph, f)
+        f.write('== Node Data ==\n')
         pp.pprint(net.node, f)
         f.write('\n\n')
 
@@ -924,27 +927,54 @@ def lookup_sec_group_data(group_id, sg_data):
     return group_name
 
 
-def replace_negative_one_with_all(value):  # -1 represents 'ALL' in several places in boto3 data structures
-    if value == '-1':
+def fix_protocol_name(name):
+    """
+    return a human readable protocol name given one from AWS functions/methods
+
+    AWS methods will typically return a readable name, except for when it should be 'ALL', in which case AWS API's will
+    return '-1'.  This function simply checks to see if the protocol name is '-1' and returns the string 'ALL in that
+    case, otherwise it returns the value provided in the parameter
+
+    Args:
+        name (string):  string representing the human readable protocol name or '-1', meaning ALL protocols
+
+    Returns (string): protocol name, changing -1 to ALL
+
+    """
+    if name == '-1':
         return 'ALL'
     else:
-        return value
+        return name
 
 
 def get_port_range(rule):
     """
-    extract port range from a rule data dict
+    extract port range from a dict containing an "access control rule"
 
-    :param rule: rule is the dict of data from the boto3.ec2.security_group.ip_permissions object
-    :return: (start, end)  tuple or 'NA' (not applicable)
+    Rule could be associated with either a security-group or with a network ACL
+
+    Args:
+        rule (dict): information related to a network access control rule, from sec-group rule or network acl
+
+    Returns (tuple): two-tuple of the form (start, end) start/end are port numbers
+
     """
 
-    if 'FromPort' in rule.keys():
-        start = replace_negative_one_with_all(rule['FromPort'])
-        end = replace_negative_one_with_all(rule['ToPort'])
+    if 'FromPort' in rule.keys():  # handles rules from sec-groups
+
+        start = fix_protocol_name(rule['FromPort'])
+        end = fix_protocol_name(rule['ToPort'])
         port_range = (start, end)
+
+    elif 'From' in rule.keys():  # handles rules from network ACL's
+
+        start = fix_protocol_name(rule['From'])
+        end = fix_protocol_name(rule['To'])
+        port_range = (start, end)
+
     else:
-        port_range = 'NA'
+
+        port_range = ('NA', 'NA')
 
     return port_range
 
@@ -1014,7 +1044,7 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
     for rule in permission_list:
 
         # get the proto name
-        proto_name = replace_negative_one_with_all(rule['IpProtocol'])
+        proto_name = fix_protocol_name(rule['IpProtocol'])
 
         # get port range
         port_range = get_port_range(rule)
@@ -1045,18 +1075,18 @@ def build_sec_group_rule_dict(security_groups):
     # place to put the rule data
     rules = {}
 
-    for sec_group in security_groups:
-        rules[sec_group.id] = {}
+    for sg in security_groups:
+        rules[sg.id] = {}
 
         # get rules in more concise form & assign to new fields in sg_rules
-        rules[sec_group.id]['inacl'] = get_access_rules(sec_group.id, sec_group.ip_permissions, security_groups)
+        rules[sg.id]['inacl'] = get_access_rules(sg.id, sg.ip_permissions, security_groups)
 
-        rules[sec_group.id]['outacl'] = get_access_rules(sec_group.id, sec_group.ip_permissions_egress, security_groups)
+        rules[sg.id]['outacl'] = get_access_rules(sg.id, sg.ip_permissions_egress, security_groups)
 
     return rules
 
 
-def collect_sec_group_rules_by_subnet(networks, sec_group_data):
+def collect_sec_group_rules_by_subnet(networks, security_groups):
     """
     extract security group rules for a subnet from instance data and insert into the data model
 
@@ -1066,7 +1096,7 @@ def collect_sec_group_rules_by_subnet(networks, sec_group_data):
 
     Args:
         networks (dict): network node data
-        sec_group_data (boto3 collection(sec-groups): iterable that returns the security groups associated with a vpc
+        security_groups (boto3 collection(sec-groups): iterable that returns the security groups associated with a vpc
 
     Returns: None
 
@@ -1074,26 +1104,25 @@ def collect_sec_group_rules_by_subnet(networks, sec_group_data):
     # todo P3 determine if this can/should be refactored to use the collection of VPCs, similar to the nacl function
     # todo rename inacl to sg-inacl, similar for outacl, to distinguish from network acls
 
-    sg_rules = build_sec_group_rule_dict(sec_group_data)  # build the dict of rules, to be indexed by sec_group ID
+    sg_rules = build_sec_group_rule_dict(security_groups)  # build the dict of rules, to be indexed by sec_group ID
 
     # for each subnet node in a network, loop over the security groups of that subnet and pull the rules from the
     # rules dict created above
-    for network in networks.values():  # for each networkx graph object in dict called networks {net_name: netxobj}
+    for net, data in networks.iteritems():  # for each networkx graph object in dict called networks {net_name: netxobj}
 
-        for node in network.nodes():  # loop over the graph's nodes
+        for n in data.node:  # loop over the graph's nodes
 
-            if node.startswith('subnet'):  # only interested in subnet nodes, not internet gw's, etc.
+            if n.startswith('subnet'):  # only interested in subnet nodes
+                subnet = data.node[n]
+                subnet['inacl'] = []  # create empty lists in the network node dicts to accept acl info
+                subnet['outacl'] = []
 
-                curr_node = network.node[node]  # unfortunate overloading of meaning of term 'node' here
-                curr_node['inacl'] = []  # create empty lists in the network node dicts to accept acl info
-                curr_node['outacl'] = []
-
-                for sg_id in curr_node['sec_groups']:  # loop over set of sg's assoc. with this subnet
-                    curr_node['inacl'].extend(sg_rules[sg_id]['inacl'])  # add sg inacl to subnet inacl
-                    curr_node['outacl'].extend(sg_rules[sg_id]['outacl'])  # add sg inacl to subnet inacl
+                for sg in subnet['sec_groups']:  # loop over set of sg's assoc. with this subnet
+                    subnet['inacl'].extend(sg_rules[sg]['inacl'])  # add sg inacl to subnet inacl
+                    subnet['outacl'].extend(sg_rules[sg]['outacl'])  # add sg inacl to subnet inacl
 
 
-def get_nacls(vpcs):
+def get_nacls(networks, vpcs):
     """
     Get network ACL data and add to network topo data
 
@@ -1103,18 +1132,54 @@ def get_nacls(vpcs):
     direction (subnet > nacls or nacl > subnets
 
     Args:
+        networks:
         vpcs (boto3.Collection.Vpc):  The VPC from which to get NACL data
 
     Returns: todo
 
     """
+    # todo determine if rule extraction logic can be generalized and applied to both NACL's and SG rules
 
     for vpc in vpcs:
+
+        graph_data = networks[vpc.id].graph
+        graph_data['nacls'] = {}  # todo use setdefault?
+        acl_data = graph_data['nacls']
+        node_data = networks[vpc.id].node
+
         for acl in vpc.network_acls.all():
-            logger.info('**NACL** id {}, net_acl_id {}, name {}'.format(acl.id, acl.network_acl_id,
-                                                                        get_aws_object_name(acl.tags)))
-            for subnet_assoc in acl.associations:
-                logger.info('**NACL SN ASSOC** {}'.format(subnet_assoc['SubnetId']))
+
+            acl_name = get_aws_object_name(acl.tags)
+            acl_data[acl.id] = {'name': acl_name, 'default': acl.is_default, 'assoc_subnets': [],
+                                'ingress_entries': [], 'egress_entries': []}
+
+            logger.info('Begin adding ACL {} ({})'.format(acl.id, acl_name))
+
+            for subnet_assoc in acl.associations:  # add assoc. subnets to list
+
+                subnet = subnet_assoc['SubnetId']
+                logger.info('Added {} to associated subnet list for NACL {}'.format(subnet, acl.id))
+                acl_data[acl.id]['assoc_subnets'].append(subnet)
+
+                node_data[subnet]['nacl'] = acl.id
+                logger.info('Added NACL {} to subnet {}'.format(acl.id, subnet))
+
+            # add entry/rule data
+            for entry in acl.entries:
+
+                ports = get_port_range(entry)
+                proto_name = fix_protocol_name(entry['Protocol'])
+
+                attribs = {'number': entry['RuleNumber'], 'action': entry['RuleAction'], 'protocol': proto_name,
+                           'ipv4_block': entry['CidrBlock'],
+                           'ports': ports}
+
+                if entry['Egress']:
+                    acl_data[acl.id]['egress_entries'].append(attribs)
+                    logger.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
+                else:
+                    acl_data[acl.id]['ingress_entries'].append(attribs)
+                    logger.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
 
 
 def render_gexf(networks, out_dir_string):
@@ -1159,6 +1224,7 @@ def render_pyplot(network, output_dir):
     plot.tight_layout()
     plot.savefig(output_dir + netid)
     plot.clf()
+    logger.info('Render PyPlot {}'.format(output_dir))
 
 
 def export_sgrules_to_csv(networks, outfile='rules.csv'):
@@ -1178,15 +1244,19 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
 
     csvwriter.writerow('vpc_id subnet_id sec_group_id direction rule_num src_dst protocol port_range'.split())
 
-    for net_id, network in networks.items():
+    for net_id, net_data in networks.iteritems():
 
-        for node, data in network.nodes_iter(data=True):  # get 2tuples of node, assoc data and loop over 'em
-            if node.startswith('subnet'):  # if subnet, then get rules
-                for acl in data['inacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node, acl['sgid'], 'in', acl['src_dst'], acl['proto'],
+        for node_id, node_data in net_data.node.iteritems():
+
+            if node_id.startswith('subnet'):  # set rules for subnets
+
+                subnet = node_data  # use a different label for readability
+
+                for acl in subnet['inacl']:  # inbound acl first
+                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'in', acl['src_dst'], acl['proto'],
                                         acl['ports']])
-                for acl in data['outacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node, acl['sgid'], 'out', acl['src_dst'], acl['proto'],
+                for acl in subnet['outacl']:  # inbound acl first
+                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'out', acl['src_dst'], acl['proto'],
                                         acl['ports']])
 
     f.flush()
