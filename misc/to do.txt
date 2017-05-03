@@ -1,37 +1,7 @@
-Look at "route propagation" to add routes via VGW's
-
-** look at support.populate_router_data - try to figure out how I can use it and/or add_explicit_subnet_edges to add edges for implicitly associated subnets
-  The main route table is indicated by a subnet association with attributes Main = True and SubnetId = None (or key Main doesn't exist)
-  There is no "association" information contained in the Subnet object!!! << this is what makes this difficult
-
-20170421 determine how to handle nodes that are in a state other than "in use", e.g. deleted - do we weant them in the DB or not, if they are we should render them differently and include a note when "rendering" to text - look at using some sort of data structure that returns a bunch of 2-tuples of networkx-node-lists & pyplot attributes for rendering those nodes
-
-Just done: parsing rules by subnet (well almost done, needs some clean up ...)
-
-Next: code checks against the rules by subnet.  Print out a report something like:
-subnet id: xxxx
-rule allows access from anywhere <subnet/host/sgid>
-rule allows access from large address range <subnet/host/sgid>
-rule allows access on a wide range of ports <subnet/host/sgid>
-rule allows access to a high risk port <subnet/host/sgid>
-
-Notes on above:
-*** I likely will need to add additional code b/c I believe I've lost the subnet/host/sgid info in my rule parsing :(
-* Will need to check if any of the high risk ports are in a port range
-* will need to determine how to handle multiple issues/rule - i.e. 1 rule allows from anywhere for a large port range that happens to include high risk ports
-    * ideally will have a single output line for a rule indicating all the rule violations, rather than multiple output lines for a single rule
-* Will need to address rules that use a security group as a src - i.e. look that up - probably need to build a sg:CIDR map (figure out how this works I believe this means there could be multiple IP ranges / SG as the SGs are applied to hosts, not subnets
-
-
-rules
-----
-src || dst == any
-src || dst == "large" block (large is a variable)
-port = "large" range (large is a variable)
-port == "high risk" port
-
-Futures:
-
-Network ACL's
-Internet networks (i.e. over VPNs)
-Handling Tiers > this will require tagging standards
+* !!! Handle NACL's w/in security checks
+* Report for rule checks (in addition to logging)
+* fix logging to handle multiple output thresholds (e.g. warning, info, etc.)
+* handling ICMP protocol in checks (and elsewhere?)
+* handling SG's and other (?) things in the src/dest spot of a rule
+* add check for rule allows access from anywhere <subnet/host/sgid> << think about this a bit
+* determine how to handle nodes that are in a state other than "in use", e.g. deleted - do we weant them in the DB or not, if they are we should render them differently and include a note when "rendering" to text - look at using some sort of data structure that returns a bunch of 2-tuples of networkx-node-lists & pyplot attributes for rendering those nodes
