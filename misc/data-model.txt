@@ -97,7 +97,7 @@ networkx.Graph:
       cidr: ...cidr_block
       assign_publics: ...map_public_ip_on_launch
       state: ...state
-      'sec_groups': set(<sec_group_id>,...)  << this is pythong set of unique security groups "attached" to the subnet (via the instances on the subnet)
+      'sec_groups': set(<sec_group_id>,...)  << this is pythong set oof unique security groups "attached" to the subnet (via the instances on the subnet)
       inacl|outacl (list):  list of dicts representing rules, one dict per rule
         {
           sgid (string): security group ID, redundant but neecessary for lookups

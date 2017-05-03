@@ -1442,6 +1442,36 @@ def create_reverse_dict(dict):
     return new
 
 
+def transform_risky_ports(risky_ports):
+    """
+    extract a list of ports per L4 protocol from the hierarchical dict of risky port info
+
+    The risky ports data in the source YAML file is not in an easily searchable format.  This creates
+    a new data structure populated from that source file that is easier to search.
+
+    Args:
+        risky_ports (dict): hierarchical dict mapping app names to ports and L4 protocols
+
+    Returns (dict): dict whose keys are L4 protocol names each with an associated sets of ports
+
+    """
+
+    # todo P3 address ambiguity of mapping from port to risk (i.e. that's a 1:many relation)
+
+    result = {'tcp': set(), 'udp': set()}
+
+    for app, proto_port_data in risky_ports.items():
+        for l4_proto, ports in proto_port_data.items():
+            for port in ports:
+                try:
+                    result[l4_proto].add(port)
+                except:
+                    pdb.set_trace()
+                    print 'ERROR Could not add {} for {}'.format(port, l4_proto)
+
+    return result
+
+
 def check_ipv4_range_size(ace, threshold):
     """
     verify the src/dest ipv4 range is smaller than the threshold
@@ -1464,9 +1494,9 @@ def check_ipv4_range_size(ace, threshold):
 
     for range in ranges:
 
-        if range.startswith('sg'):
+        if range.startswith('sg'):  # not handling security groups yet
             return 'other', 'Got a security group {}'.format(range)  # todo P1 add handling for security groups
-        elif not '/' in range:
+        elif not '/' in range:  # not handling anything that's not a CIDR block, i.e. has a /<pfx>
             return 'other', 'Got an unknown range type {}'.format(range)
         else:  # todo P1 determine if there are other cases to be handled here
             cidr = netaddr.IPNetwork(range)
@@ -1474,7 +1504,6 @@ def check_ipv4_range_size(ace, threshold):
                 return 'fail', range
 
     return 'pass', range
-
 
 
 def check_port_range_size(ace, threshold):
@@ -1545,23 +1574,56 @@ def check_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
         proto_num = name_to_num.get(proto_name)
 
     if proto_num not in allowed_protocols:
-        logger.info('Protocol {} ({}) is not allowed'.format(proto_num, proto_name))
+        return 'fail', 'Protocol {} ({}) is not allowed'.format(proto_num, proto_name)
     else:
-        logger.info('Protocol {} ({}) is allowed'.format(proto_num, proto_name))
+        return 'pass', 'Protocol {} ({}) is allowed'.format(proto_num, proto_name)
 
 
-def check_risky_ports(ace, ports):
+def check_risky_ports(ace, risky_ports):
     """
     report if an access control rule contains ports deemed risky
 
+    The risky_ports dict is of the form: {'tcp': set(<ports>), 'udp': set(<ports>)}
+
     Args:
         ace (dict): a network access control rule
-        ports (dict): a dict containing the ports for which to check
+        risky_ports (dict): a dict of risky ports grouped by L4 protocol
 
     Returns (tuple): 2 tuple of the form (result, msg), result = pass|fail|other; msg is a text message for humans
 
     """
-    sdf
+
+    result = None
+
+    if ace['ports'] == ('NA', 'NA'):
+
+        return 'other', 'This rule may include all ports and thus most likely includes risky ports'
+
+    else:
+
+        ace_proto = ace['proto']
+        ace_start_port = ace['ports'][0]
+        ace_end_port = ace['ports'][1]
+
+        ace_ports = range(ace_start_port, ace_end_port + 1)  # need to add 1 b/c range() excludes the upper endpoint
+        ace_ports = set(ace_ports)  # convert to set to enable set operations
+
+        if ace_proto.isdigit():
+            i = int(ace_proto)
+            if i == 6:
+                ace_proto = 'tcp'
+            if i == 17:
+                ace_proto = 'udp'
+
+        for l4_proto, risky_ports in risky_ports.items():
+
+            if ace_proto == 'tcp':
+                if not ace_ports.isdisjoint(risky_ports['tcp']):
+                    result = 'fail', 'Risky {} ports identifed in rule port range {}'.format('tcp', ace['ports'])
+
+            if ace_proto == 'udp':
+                if not ace_ports.isdisjoint(risky_ports['udp']):
+                    result = 'fail', 'Risky {} ports identifed in rule port range {}'.format('udp', ace['ports'])
 
 
 def execute_rule_checks(networks):  # figure out what params to pass
@@ -1578,7 +1640,7 @@ def execute_rule_checks(networks):  # figure out what params to pass
     NB: function relies on loading data into a dict for each of several yaml files.  Currently those files are
     hardcoded here and must reside in the same directory as the script
 
-    The file 'proto-num2name-map.yaml' maps L3 protocol numbers to names only, a utility function
+    The file 'proto-num2name.yaml' maps L3 protocol numbers to names only, a utility function
     is called here to add the reverse mapping
 
     Args:
@@ -1592,14 +1654,15 @@ def execute_rule_checks(networks):  # figure out what params to pass
     # todo P3 make yaml file loading configurable (e.g. file name/path, etc.)
     # todo P3 names of L3 protocols need to be "standardized"
 
-    risky_ports = load_yaml_file('risky_ports.yaml')
+    risky_apps = load_yaml_file('risky_apps2ports.yaml')
     thresholds = load_yaml_file('thresholds.yaml')
-    proto_num_to_name = load_yaml_file('proto-num2name-map.yaml')
+    proto_num_to_name = load_yaml_file('proto-num2name.yaml')
     allowed_proto_list = load_yaml_file('allowed_protocols.yaml')
 
     logger.info('Loaded check yaml files')
 
     proto_name_to_num = create_reverse_dict(proto_num_to_name)
+    risky_ports = transform_risky_ports(risky_apps)
 
     logger.info('Initiating rule checks')
 
@@ -1617,10 +1680,10 @@ def execute_rule_checks(networks):  # figure out what params to pass
 
                     for entry in subnet_data['inacl']:  # todo P3 collapse these by parameterizing the result text?
 
-                        result_ipv4_range_size = check_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
                         result_port_range_size = check_port_range_size(entry, thresholds['port_range_max'])
+                        result_ipv4_range_size = check_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
                         check_allowed_protocols(entry, allowed_proto_list, proto_num_to_name, proto_name_to_num)
-                        check_risk_ports(entry, risky_ports)
+                        result_risky_ports = check_risky_ports(entry, risky_apps)
 
                         logger.info('Port range size check for '
                                     '{subnet_id}/{sg_id} returned '
