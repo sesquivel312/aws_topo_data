@@ -59,12 +59,12 @@ networkx.Graph:
     main_route_table: <rtbid>
     nacls (dict):
       id (dict):
-        name (string): taken from NetworkAcl.tags
+        name (string): taken from NetworkAcl.tags (or NOT EXIST if there isn't a Name tag)
         default (boolean): True if this is the default NACL for this VPC
         assoc_subnets (list): list of subnet ID's to which this NACL applies
         ingress|egress_entries (list): each entry is a dict, one list for ingress rules and one for egress
           number (int): rule # (determines order?)
-          action (string): allow|deny
+          action (string): allow|deny  NB: sg rules don't have an 'action' property b/c they are allow only
           protocol (string): name of protocol, e.g. tcp, udp, icmp, all
           ipv4_block (string): source or dest range in CIDR notation, depending on direction of rule
           ports (tuple): 2tuple of the form (start, end), where the port range is start-end (end=start if one port)
@@ -101,13 +101,11 @@ networkx.Graph:
       inacl|outacl (list):  list of dicts representing rules, one dict per rule
         {
           sgid (string): security group ID, redundant but neecessary for lookups
-          proto (string): all|tcp|ucp|???
+          protocol (string): all|tcp|ucp|???
           src_dst (list): list of strings representing CIDR blocks, security groups, ???, for inacl these will be sources, four out acl's they will be destinations
           ports (tuple): 2-tuple representing the destination port range (dest for both in and out acl's).  a single port is represented by a 2tuple with the same value in both slots
         }
-
       assoc_route_table: None | <rtb-id> << route table ID of the route table to which this subnet is associated  NB: all subnets are associated with one and only one rtb, but those assocaited w/the "main" rtb in a given vpc are not listed in rtb.associations - i.e. you have to find these by subtracting the set of subnets assocaited with route tables from the list of all subnets :(
-
       sec_groups: python set of boto3.ec2.SecurityGroup.id
       nacl (string): id of the NACL assocaited with this subnet, or None
 
