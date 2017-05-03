@@ -75,6 +75,22 @@ logger = logging.getLogger('aws_topo')  # create our own logger to set log level
 logger.setLevel(logging.INFO)
 
 
+def load_yaml_file(file_name):
+    """
+    load a yaml file into a dict and return it
+
+    Args:
+        file_name (string): name of file to load to dict
+
+    Returns:
+
+    """
+
+    with open(file_name) as f:
+        dict = yaml.load(f)
+        return dict
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--region', help='AWS REGION to use, defaults to us-west-2', default='us-west-2')
@@ -1118,6 +1134,9 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
         # get port range
         port_range = get_port_range(rule)
 
+        if port_range == ('NA', 'NA') and proto_name == 'ALL':
+            port_range == ('ALL', 'ALL')
+
         # get the sources, which may be cidr blocks or security groups
         src_sec_groups = get_source_sec_groups(rule, security_groups)
 
@@ -1397,20 +1416,30 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
         export_sgrules_to_csv(networks, outfile=csv_file)
 
 
-def load_yaml_file(file_name):
+def create_reverse_dict(dict):
     """
-    load a yaml file into a dict and return it
+    adds the reverse-mapping to the mapping contained in the dict parameter
+
+    assumes the dict is a 'single level' deep - i.e. all values are scalars
 
     Args:
-        file_name (string): name of file to load to dict
+        dict (dict): mapping to which the reverse mapping will be added
 
-    Returns:
+    Returns (dict): dict containing existing forward mappings and added reverse mappings
 
     """
 
-    with open(file_name) as f:
-        dict = yaml.load(f)
-        return dict
+    forward_length = len(dict)
+
+    new = {}
+
+    for k,v in dict.iteritems():
+        new[v] = k
+
+    if len(new) < forward_length:
+        logger.info('Generated protocol name-to-number mapping from number-to-name, it contained multiple entries '
+                    'with the same protocol name, which may result in errors when the reverse mapping is used')
+    return new
 
 
 def check_ipv4_range_size(ace, threshold):
@@ -1448,9 +1477,109 @@ def check_ipv4_range_size(ace, threshold):
 
 
 
+def check_port_range_size(ace, threshold):
+    """
+    Verify port range size contained in an ace is not greater than threshold given
+
+    port range size = end_port - start_port
+
+    Args:
+        ace (dict): an access control rule - contains address ranges, port ranges, protocols, etc.
+        threshold (int): value to check against
+
+    Returns (tuple): 2-tuple, (result, msg), result = pass|fail|other, msg=string message
+
+    """
+
+    result = None
+
+    if ace['ports'] == ('NA', 'NA'):
+
+        result = 'other'
+
+    else:
+        start = ace['ports'][0]
+        end = ace['ports'][1]
+        size = int(end) - int(start)
+
+        if size > threshold:
+            result = 'fail'
+        else:
+            result = 'pass'
+
+    if result == 'fail':
+        return 'fail',  'Port range size {} greater than threshold {}'.format(size, threshold)
+    elif result == 'other':
+        return 'other', 'Port range size not applicable for ports {}'.format(ace['ports'])
+    elif result == 'pass':
+        return 'pass', 'Port range size {} less than or equal to threshold {}'.format(size, threshold)
+    else:
+        logger.info('FAILURE: port range size check did not return a result for {}'.format(ace))
+
+
+def check_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
+    """
+    verify protocols in use in a network access rule are allowed
+
+    Allowed protocols are defined in the file 'allowed_protocols.yaml'
+    Args:
+        num_to_name (dict): dict mapping L3 protocol numbers to names
+        name_to_num (dict): dict mapping L3 protocol names to numbers
+        allowed_protocols (list): list of allowed protocols (by number)
+        ace (dict): an access control rule
+
+    Returns:
+
+    """
+
+    # todo P3 make file to load configurable
+
+    proto = ace['proto']  # make more readable
+
+    # we need both name and number here so get the one we don't yet know
+    if proto.isdigit():  # protocol specified as a name/string
+        proto_num = proto
+        proto_name = num_to_name.get(proto_num)
+    else:
+        proto_name = proto
+        proto_num = name_to_num.get(proto_name)
+
+    if proto_num not in allowed_protocols:
+        logger.info('Protocol {} ({}) is not allowed'.format(proto_num, proto_name))
+    else:
+        logger.info('Protocol {} ({}) is allowed'.format(proto_num, proto_name))
+
+
+def check_risky_ports(ace, ports):
+    """
+    report if an access control rule contains ports deemed risky
+
+    Args:
+        ace (dict): a network access control rule
+        ports (dict): a dict containing the ports for which to check
+
+    Returns (tuple): 2 tuple of the form (result, msg), result = pass|fail|other; msg is a text message for humans
+
+    """
+    sdf
+
+
 def execute_rule_checks(networks):  # figure out what params to pass
     """
     function to drive rule checks
+
+    Checks are made for rules containing:
+
+        * address range size beyond a threshold (checks prefix length)
+        * large port ranges, given by a threshold
+        * prohibited L3 protocols
+        * 'risky' ports (risky ports are locally definable via a file) <<< working on this one now
+
+    NB: function relies on loading data into a dict for each of several yaml files.  Currently those files are
+    hardcoded here and must reside in the same directory as the script
+
+    The file 'proto-num2name-map.yaml' maps L3 protocol numbers to names only, a utility function
+    is called here to add the reverse mapping
 
     Args:
         networks (dict): of networkx.Graph objects containing network topology data
@@ -1458,35 +1587,59 @@ def execute_rule_checks(networks):  # figure out what params to pass
     Returns:
 
     """
-    # todo P2 make this configurable
+    # todo P1 support prefix lists and security groups as sources
     # todo P2 currently seg-group and nacl rule checks are separate - unify - likely means refactoring dict key names
+    # todo P3 make yaml file loading configurable (e.g. file name/path, etc.)
+    # todo P3 names of L3 protocols need to be "standardized"
 
-
-    port_dict = load_yaml_file('ports.yaml')
+    risky_ports = load_yaml_file('risky_ports.yaml')
     thresholds = load_yaml_file('thresholds.yaml')
+    proto_num_to_name = load_yaml_file('proto-num2name-map.yaml')
+    allowed_proto_list = load_yaml_file('allowed_protocols.yaml')
 
     logger.info('Loaded check yaml files')
+
+    proto_name_to_num = create_reverse_dict(proto_num_to_name)
+
     logger.info('Initiating rule checks')
 
+    # loop over the networks, then the nodes, looking for subnets - which is where the aggregated SG rules are
+    # then loop over the rules conducting checks
     for net, net_data in networks.iteritems():
+
         for node, node_data in net_data.node.iteritems():
+
             if node.startswith('subnet'):
                 subnet_id = node
                 subnet_data = node_data
+
                 if subnet_data['inacl']:  # todo P2 refactor this
+
                     for entry in subnet_data['inacl']:  # todo P3 collapse these by parameterizing the result text?
-                        result = check_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
-                        if result[0] == 'pass':  # todo P2 determine if need to handle differently
+
+                        result_ipv4_range_size = check_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
+                        result_port_range_size = check_port_range_size(entry, thresholds['port_range_max'])
+                        check_allowed_protocols(entry, allowed_proto_list, proto_num_to_name, proto_name_to_num)
+                        check_risk_ports(entry, risky_ports)
+
+                        logger.info('Port range size check for '
+                                    '{subnet_id}/{sg_id} returned '
+                                    '{result}: {msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
+                                                             result=result_port_range_size[0],
+                                                             msg=result_port_range_size[1]))
+
+                        if result_ipv4_range_size[0] == 'pass':  # todo P2 determine if need to handle differently
                             # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
                             logger.info('Pass IPv4 Range Size for rule {subnet_id}/{sg_id}: '
                                         '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                              result_msg=result[1]))
-                        elif result[0] == 'fail':
+                                                              result_msg=result_ipv4_range_size[1]))
+                        elif result_ipv4_range_size[0] == 'fail':
                             logger.info('Fail IPv4 Range Size for rule {subnet_id}/{sg_id}: '
                                         '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                              result_msg=result[1]))
-                        elif result[0] == 'other':
+                                                              result_msg=result_ipv4_range_size[1]))
+
+                        elif result_ipv4_range_size[0] == 'other':
                             logger.info('SG Rule {subnet_id}/{sg_id} found something it '
                                         'could not parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                                              result_msg=result[1]))
+                                                                              result_msg=result_ipv4_range_size[1]))
 

@@ -1,4 +1,6 @@
 ---
+# this is a dict mapping L7 protocol names to L4 protocols and ports
+# this should probably be changed to a databse and include the allowed protocols, etc.
 'ssh':
   'tcp':
   'ports':

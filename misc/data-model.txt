@@ -11,6 +11,7 @@ sec_groups = boto3.ec2.resource.security_groups iterable -- from .all() method
 networks:= python dict
  <vpc-id>: networkx.Graph
 
+---
 
 sec_group_rule_dict:= dict of rules for each sec_group
   {
@@ -47,7 +48,7 @@ sec_group_rule_dict = {
   ]
 }
 
-
+---
 
 networkx.Graph:
   graph: (dict) << this is effectively a dict holding arbitrary data, using it here to store VPC information
@@ -156,8 +157,44 @@ reformatted rules: << list of rules, ea rule is dict containing sec_group_id, so
     ...
   ]
 
+---
 
+# protocol number:name map  # dict loaded from YAML file
+proto_num (int): proto_name (string)
 
+---
 
+# check thresholds  # dict loaded from YAML file
+check_name (string): threshold_value (int)
 
+---
+
+# risky ports # dict loaded from YAML file
+app_proto_name (string):
+  transport_proto (string):  # basically TCP or UDP
+  ports (string): # list of ports for that L4 protocol
+    port (int)  # list of ports
+
+example YAML contents
+'ssh':
+  'tcp':
+  'ports':
+    - 22
+'rdp':
+  'tcp':
+    - 3389
+'Trinoo':
+  'udp':
+    - 27444
+    - 31335
+
+---
+
+# allowed protocols  #  list loaded from YAML file
+l3_protocol_number (int)  # this is the only thing in the file, one entry per allowed protocol, per line
+
+example YAML content
+- 6 # TCP
+- 17 # UDP
+- 1 # ICMP
 

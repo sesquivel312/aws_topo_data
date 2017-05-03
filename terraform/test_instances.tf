@@ -61,6 +61,15 @@ resource "aws_network_acl" "nacl-a1" {
       to_port = 53
     }
 
+	ingress {
+      rule_no = 3
+      protocol = "-1"
+      action = "allow"
+      cidr_block = "7.7.0.0/16"
+      from_port = 0
+      to_port = 0
+    }
+
 	egress {
       rule_no = 1
       protocol = "udp"
