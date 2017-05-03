@@ -87,8 +87,8 @@ def load_yaml_file(file_name):
     """
 
     with open(file_name) as f:
-        dict = yaml.load(f)
-        return dict
+        pydict = yaml.load(f)
+        return pydict
 
 
 def get_args():
@@ -224,7 +224,7 @@ def dump_network_data(networks, f):
 
     """
 
-    for id, net in networks.iteritems():
+    for net_id, net in networks.iteritems():
         f.write('======= Dumping VPC: {} =======\n'.format(net.graph['vpc']))
         f.write('== VPC Level Data ==\n')
         pp.pprint(net.graph, f)
@@ -364,11 +364,6 @@ def get_vpc_endpoint_data(network, vpc, aws_session):
     """
     add all vpc endpoints in the VPC to the network graph
 
-
-    :param network_obj (network Graph): the Graph object into which the vpce data will be placed
-    :param vpc_id (string): id of the VPC from which to extract vpce data
-    :param aws_session (boto3/Session): boto3 Session object initialized with API keys, region, etc.
-    :return: None
     Args:
         network (networkx.Graph): Graph into which vpce data for a given VPC will be placed
         vpc (boto3.Vpc): the relevant AWS VPC
@@ -1144,7 +1139,7 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
         add_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
 
         rules.append({'sgid': sec_group_id, 'src_dst': add_ranges, 'proto': proto_name,
-                                'ports': port_range})
+                      'ports': port_range})
 
     return rules
 
@@ -1433,7 +1428,7 @@ def create_reverse_dict(dict):
 
     new = {}
 
-    for k,v in dict.iteritems():
+    for k, v in dict.iteritems():
         new[v] = k
 
     if len(new) < forward_length:
@@ -1472,7 +1467,7 @@ def transform_risky_ports(risky_ports):
     return result
 
 
-def check_ipv4_range_size(ace, threshold):
+def chk_ipv4_range_size(ace, threshold):
     """
     verify the src/dest ipv4 range is smaller than the threshold
 
@@ -1506,7 +1501,7 @@ def check_ipv4_range_size(ace, threshold):
     return 'pass', range
 
 
-def check_port_range_size(ace, threshold):
+def chk_port_range_size(ace, threshold):
     """
     Verify port range size contained in an ace is not greater than threshold given
 
@@ -1520,33 +1515,23 @@ def check_port_range_size(ace, threshold):
 
     """
 
-    result = None
-
     if ace['ports'] == ('NA', 'NA'):
 
-        result = 'other'
+        return 'other', 'Check port range size found an NA range {}'.format(ace['ports'])
 
     else:
+
         start = ace['ports'][0]
         end = ace['ports'][1]
         size = int(end) - int(start)
 
         if size > threshold:
-            result = 'fail'
+            return 'fail', 'Port range size {} greater than threshold {}'.format(size, threshold)
         else:
-            result = 'pass'
-
-    if result == 'fail':
-        return 'fail',  'Port range size {} greater than threshold {}'.format(size, threshold)
-    elif result == 'other':
-        return 'other', 'Port range size not applicable for ports {}'.format(ace['ports'])
-    elif result == 'pass':
-        return 'pass', 'Port range size {} less than or equal to threshold {}'.format(size, threshold)
-    else:
-        logger.info('FAILURE: port range size check did not return a result for {}'.format(ace))
+            return 'pass', 'Port range size {} less than or equal to threshold {}'.format(size, threshold)
 
 
-def check_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
+def chk_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
     """
     verify protocols in use in a network access rule are allowed
 
@@ -1579,7 +1564,7 @@ def check_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
         return 'pass', 'Protocol {} ({}) is allowed'.format(proto_num, proto_name)
 
 
-def check_risky_ports(ace, risky_ports):
+def chk_risky_ports(ace, risky_ports):
     """
     report if an access control rule contains ports deemed risky
 
@@ -1593,37 +1578,38 @@ def check_risky_ports(ace, risky_ports):
 
     """
 
-    result = None
-
     if ace['ports'] == ('NA', 'NA'):
 
-        return 'other', 'This rule may include all ports and thus most likely includes risky ports'
+        return 'other', 'Check risky ports - this rule appears to include all ports, so likely includes risky ports'
 
-    else:
+    ace_proto = ace['proto']
+    ace_start_port = ace['ports'][0]
+    ace_end_port = ace['ports'][1]
 
-        ace_proto = ace['proto']
-        ace_start_port = ace['ports'][0]
-        ace_end_port = ace['ports'][1]
+    ace_ports = range(ace_start_port, ace_end_port + 1)  # need to add 1 b/c range() excludes the upper endpoint
+    ace_ports = set(ace_ports)  # convert to set to enable set operations
 
-        ace_ports = range(ace_start_port, ace_end_port + 1)  # need to add 1 b/c range() excludes the upper endpoint
-        ace_ports = set(ace_ports)  # convert to set to enable set operations
+    if ace_proto.isdigit():  # if not then protocol is already in string form
+        i = int(ace_proto)
+        if i == 6:
+            ace_proto = 'tcp'
+        if i == 17:
+            ace_proto = 'udp'
 
-        if ace_proto.isdigit():
-            i = int(ace_proto)
-            if i == 6:
-                ace_proto = 'tcp'
-            if i == 17:
-                ace_proto = 'udp'
+    for l4_proto, risky_ports in risky_ports.items():
 
-        for l4_proto, risky_ports in risky_ports.items():
+        if ace_proto == 'tcp':
+            if not ace_ports.isdisjoint(risky_ports['tcp']):
+                return 'fail', 'Risky {} ports identified in rule port range {}'.format('tcp', ace['ports'])
+            return 'pass', 'No risky {} ports identified in rule port range {}'.format('tcp', ace['ports'])
 
-            if ace_proto == 'tcp':
-                if not ace_ports.isdisjoint(risky_ports['tcp']):
-                    result = 'fail', 'Risky {} ports identifed in rule port range {}'.format('tcp', ace['ports'])
+        elif ace_proto == 'udp':
+            if not ace_ports.isdisjoint(risky_ports['udp']):
+                return 'fail', 'Risky {} ports identified in rule port range {}'.format('udp', ace['ports'])
+            return 'pass', 'No risky {} ports identified in rule port range {}'.format('udp', ace['ports'])
 
-            if ace_proto == 'udp':
-                if not ace_ports.isdisjoint(risky_ports['udp']):
-                    result = 'fail', 'Risky {} ports identifed in rule port range {}'.format('udp', ace['ports'])
+        else:
+            return 'other', 'Check risky ports found a port range that was not understood {}'.format(ace_proto)
 
 
 def execute_rule_checks(networks):  # figure out what params to pass
@@ -1680,19 +1666,23 @@ def execute_rule_checks(networks):  # figure out what params to pass
 
                     for entry in subnet_data['inacl']:  # todo P3 collapse these by parameterizing the result text?
 
-                        result_port_range_size = check_port_range_size(entry, thresholds['port_range_max'])
-                        result_ipv4_range_size = check_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
-                        check_allowed_protocols(entry, allowed_proto_list, proto_num_to_name, proto_name_to_num)
-                        result_risky_ports = check_risky_ports(entry, risky_apps)
+                        entry_id = '/'.join([subnet_id, entry['sgid'], entry['proto'], str(entry['ports'])])
 
-                        logger.info('Port range size check for '
-                                    '{subnet_id}/{sg_id} returned '
-                                    '{result}: {msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                             result=result_port_range_size[0],
-                                                             msg=result_port_range_size[1]))
+                        results_list = []
 
-                        if result_ipv4_range_size[0] == 'pass':  # todo P2 determine if need to handle differently
-                            # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
+                        result_ipv4_range_size = chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
+                        results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
+
+                        results_list.append(
+                            chk_allowed_protocols(entry, allowed_proto_list, proto_num_to_name, proto_name_to_num))
+
+                        results_list.append(chk_risky_ports(entry, risky_apps))
+
+                        # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
+                        # todo P2 determine if need to handle differently
+                        # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
+                        if result_ipv4_range_size[0] == 'pass':
+
                             logger.info('Pass IPv4 Range Size for rule {subnet_id}/{sg_id}: '
                                         '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                               result_msg=result_ipv4_range_size[1]))
@@ -1706,3 +1696,9 @@ def execute_rule_checks(networks):  # figure out what params to pass
                                         'could not parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                                               result_msg=result_ipv4_range_size[1]))
 
+                        for result in results_list:
+                            try:
+                                logger.info('{result} for rule {entry_id} {msg}'.format(
+                                    result=result[0].title(), entry_id=entry_id, msg=result[1]))
+                            except:
+                                pdb.post_mortem()
