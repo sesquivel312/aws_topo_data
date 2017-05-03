@@ -1138,7 +1138,7 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
         add_ranges = get_rule_add_range(rule)
         add_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
 
-        rules.append({'sgid': sec_group_id, 'src_dst': add_ranges, 'proto': proto_name,
+        rules.append({'sgid': sec_group_id, 'ipv4_block': add_ranges, 'protocol': proto_name,
                       'ports': port_range})
 
     return rules
@@ -1336,10 +1336,10 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
                 subnet = node_data  # use a different label for readability
 
                 for acl in subnet['inacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'in', acl['src_dst'], acl['proto'],
+                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'in', acl['ipv4_block'], acl['protocol'],
                                         acl['ports']])
                 for acl in subnet['outacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'out', acl['src_dst'], acl['proto'],
+                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'out', acl['ipv4_block'], acl['protocol'],
                                         acl['ports']])
 
     f.flush()
@@ -1485,7 +1485,7 @@ def chk_ipv4_range_size(ace, threshold):
     """
     # todo P1 fix this to handle non-CIDR block src-dest items, e.g. security-groups (# of hosts contained?)
 
-    ranges = ace['src_dst']
+    ranges = ace['ipv4_block']
 
     for range in ranges:
 
@@ -1548,7 +1548,7 @@ def chk_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
 
     # todo P3 make file to load configurable
 
-    proto = ace['proto']  # make more readable
+    proto = ace['protocol']  # make more readable
 
     # we need both name and number here so get the one we don't yet know
     if proto.isdigit():  # protocol specified as a name/string
@@ -1582,7 +1582,7 @@ def chk_risky_ports(ace, risky_ports):
 
         return 'other', 'Check risky ports - this rule appears to include all ports, so likely includes risky ports'
 
-    ace_proto = ace['proto']
+    ace_proto = ace['protocol']
     ace_start_port = ace['ports'][0]
     ace_end_port = ace['ports'][1]
 
@@ -1666,7 +1666,7 @@ def execute_rule_checks(networks):  # figure out what params to pass
 
                     for entry in subnet_data['inacl']:  # todo P3 collapse these by parameterizing the result text?
 
-                        entry_id = '/'.join([subnet_id, entry['sgid'], entry['proto'], str(entry['ports'])])
+                        entry_id = '/'.join([subnet_id, entry['sgid'], entry['protocol'], str(entry['ports'])])
 
                         results_list = []
 
