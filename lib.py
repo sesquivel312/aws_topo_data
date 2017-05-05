@@ -1664,6 +1664,61 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
                             result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
+def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports):
+    """
+    execute checks against rules originating from security groups
+
+    Args:
+        nacl_data (dict): contains topo data, inc'g subnets, which contain the ACL info compiled from security groups
+        thresholds (dict):  check threshold data
+        allowed_protos (list): list of allowed protocols, by L3 protocol ID/number
+        proto_num2name (dict): flat dict mapping L3 protocol numbers to protocol names
+        proto_name2num (dict): flat dict mapping protocol names to L3 protocol numbers
+        risky_ports (dict): dict listing risky ports by L4 protocols
+
+    Returns (None):
+
+    """
+
+    for nacl_id, nacl_data in nacl_data.iteritems():  # todo P3 collapse these by parameterizing the result text?
+
+        for entry in nacl_data['ingress_entries']:
+
+            entry_id = '/'.join([nacl_id, 'INGRESS', entry['protocol'], str(entry['ports'])])
+
+            results_list = []
+
+            result_ipv4_range_size = chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
+            results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
+
+            results_list.append(
+                chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
+
+            results_list.append(chk_risky_ports(entry, risky_ports))
+
+            # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
+            # todo P2 determine if need to handle differently
+            # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
+            if result_ipv4_range_size[0] == 'pass':
+                logger.info('Pass IPv4 Range Size for rule {entry_id}: '
+                            '{result_msg}'.format(entry_id=entry_id,
+                                                  result_msg=result_ipv4_range_size[1]))
+
+            elif result_ipv4_range_size[0] == 'fail':
+                logger.info('Fail IPv4 Range Size for rule {entry_id}: '
+                            '{result_msg}'.format(entry_id=entry_id,
+                                                  result_msg=result_ipv4_range_size[1]))
+
+            elif result_ipv4_range_size[0] == 'other':
+                logger.info('SG Rule {entry_id} found something it '
+                            'could not parse {result_msg}'.format(entry_id=entry_id,
+                                                                  result_msg=result_ipv4_range_size[1]))
+
+            for result in results_list:
+                logger.info('{result} for rule {entry_id} {msg}'.format(
+                    result=result[0].title(), entry_id=entry_id, msg=result[1]))
+
+
 def execute_rule_checks(networks):  # figure out what params to pass
     """
     function to drive rule checks
@@ -1710,4 +1765,6 @@ def execute_rule_checks(networks):  # figure out what params to pass
 
         check_security_group_rules(net_data, thresholds, allowed_proto_list,
                                    proto_num_to_name, proto_name_to_num, risky_ports)
-        
+
+        check_network_acl_rules(net_data.graph['nacls'], thresholds, allowed_proto_list,
+                                proto_num_to_name, proto_name_to_num, risky_ports)
