@@ -3,6 +3,6 @@
 # specified by protocol number
 # todo automate grabbing this from IANA and other sources as needed
 
-- 1
-- 6
-- 17
+- '1'
+- '6'
+- '17'

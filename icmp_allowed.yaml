@@ -1,0 +1,26 @@
+---
+# lists allowed ICMP types and codes, grouped by protocol family
+# regarding the contents they are of the form
+#
+# human-readable-name:
+#   <type_num>:
+#     - <code_num>
+#
+# <type_num> is the ICMP type number and <code_num> is an ICMP code associated with a given <type_num>
+
+# todo add IPv6
+
+'ipv4':
+  'echo reply':
+    '0':
+      - '0'
+  'destination unreachable':
+    '3':
+      - '4'
+  'echo':
+    '8':
+      - '0'
+  'time exceeded':
+    '11':
+      - '0'
+      - '1'

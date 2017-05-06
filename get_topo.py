@@ -40,7 +40,7 @@ vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 # collect all the topo and related meta data
 lib.build_nets(networks, vpcs, aws_session)
 
-lib.collect_sec_group_rules_by_subnet(networks, sec_groups)
+lib.get_sec_group_rules_by_subnet(networks, sec_groups)
 
 lib.get_nacls(networks, vpcs)
 

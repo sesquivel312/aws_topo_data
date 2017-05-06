@@ -1,9 +1,7 @@
 /*
 	<add descriptive text here>
 
-	Todo:
-		* <add a todo here>
-		* <add more as needed>
+	todo completely parameterize so can be used to test generally, currently depends on existing AWS objects
 
 */
 

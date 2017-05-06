@@ -52,6 +52,9 @@ import matplotlib.pyplot as plot
 # todo P1 identify that ELB's exist
 # todo P1 identify that WAF/Shield is configured
 # todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
+# todo P2 run port checks on ELB listener ports
+# todo P2 when ELB listener = 443, verify ciphers are configured at all AND check for weak ciphers (2 diff checks)
+# todo P2 add support for Direct Connect (similar to VPN)
 # todo P2 add full LB support
 # todo P2 add full WAF & sheild support
 # todo P2 Add a name key to all nodes in the network graph (currently only added to the route-table nodes)
@@ -64,6 +67,15 @@ import matplotlib.pyplot as plot
 # todo P3 logging - factor logging setup out of global name space and make configurable via CLI and file
 # todo P3 generalize this away from AWS specifically
 # todo P3 logging - factor out logging in each function to a utility function so calls w/in functions are "the same"?
+# todo P3 include which risky ports were identified in a port range
+# todo add geo and/or black/white-list IP range/address checks - i.e. check lists supplied by EW or 3rd parties
+# todo IAM audit
+# todo Terraform Audit, this is mostly a separate function, but could be combined to "Diff" the to-be and as-is configs
+# todo Route 53 audit, minimum is keep record of domains configured and diff from previous run - research other checks
+# todo add alert logic to topo and rules checks - will require research
+# todo add mod-security to topo and rule checks - will require research
+
+
 
 LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
@@ -1033,6 +1045,21 @@ def get_port_range(rule):
 
     Rule could be associated with either a security-group or with a network ACL
 
+    Regarding rules from security-gorups vs NACL's and when the protocol is ICMP:
+
+        Rules originating from security-groups store port ranges slightly differently than NACLS do.  In sec-groups,
+        the ports are in the fields 'FromPort' & 'ToPort'.  NACL's store the from and to ports in a dict called
+        'PortRange'.  Inside that dict are fields (keys) called 'To' and 'From'.
+
+        Also, ICMP info is stored differently between NACL and security-group rules.  In both cases the ICMP is
+        indicated by the appropriately named "protocol" field in the rule (i.e. it's named slightly differently between
+        NACL's and security-group rules).  However, in security-group rules the type and code are stored in the
+        'FromPort' and 'ToPort', respectively.  For NACL's the type and code are stored in a dict called 'IcmpTypeCode',
+        similar to the way "regular" ports are stored.
+
+        This function returns ICMP type and code data in the port range 2-tuple as (<type>, <code>) regardless.  To do
+        so, it must make several checks to determine which type of rule it's been given
+
     Args:
         rule (dict): information related to a network access control rule, from sec-group rule or network acl
 
@@ -1040,21 +1067,25 @@ def get_port_range(rule):
 
     """
 
+    port_range = ('NA', 'NA')
+
     if 'FromPort' in rule.keys():  # handles rules from sec-groups
 
         start = fix_protocol_name(rule['FromPort'])
         end = fix_protocol_name(rule['ToPort'])
         port_range = (start, end)
 
-    elif 'From' in rule.keys():  # handles rules from network ACL's
+    elif 'PortRange' in rule.keys():  # handles rules from network ACL's
 
-        start = fix_protocol_name(rule['From'])
-        end = fix_protocol_name(rule['To'])
+        start = fix_protocol_name(rule['PortRange']['From'])
+        end = fix_protocol_name(rule['PortRange']['To'])
         port_range = (start, end)
 
-    else:
 
-        port_range = ('NA', 'NA')
+    elif 'IcmpTypeCode' in rule.keys():  # handles case of ICMP for network acl
+        type = rule['IcmpTypeCode']['Type']
+        code = rule['IcmpTypeCode']['Code']
+        port_range = (type, code)
 
     return port_range
 
@@ -1138,7 +1169,7 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
         add_ranges = get_rule_add_range(rule)
         add_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
 
-        rules.append({'sgid': sec_group_id, 'ipv4_block': add_ranges, 'protocol': proto_name,
+        rules.append({'sgid': sec_group_id, 'src_dst': add_ranges, 'protocol': proto_name,
                       'ports': port_range})
 
     return rules
@@ -1169,7 +1200,7 @@ def build_sec_group_rule_dict(security_groups):
     return rules
 
 
-def collect_sec_group_rules_by_subnet(networks, security_groups):
+def get_sec_group_rules_by_subnet(networks, security_groups):
     """
     extract security group rules for a subnet from instance data and insert into the data model
 
@@ -1236,25 +1267,26 @@ def get_nacls(networks, vpcs):
             acl_data[acl.id] = {'name': acl_name, 'default': acl.is_default, 'assoc_subnets': [],
                                 'ingress_entries': [], 'egress_entries': []}
 
-            logger.info('Begin adding ACL {} ({})'.format(acl.id, acl_name))
+            logger.info('Begin adding NACL {} ({})'.format(acl.id, acl_name))
 
             for subnet_assoc in acl.associations:  # add assoc. subnets to list
 
                 subnet = subnet_assoc['SubnetId']
-                logger.info('Added {} to associated subnet list for NACL {}'.format(subnet, acl.id))
                 acl_data[acl.id]['assoc_subnets'].append(subnet)
+                logger.info('Added {} to associated subnet list for NACL {}'.format(subnet, acl.id))
 
                 node_data[subnet]['nacl'] = acl.id
                 logger.info('Added NACL {} to subnet {}'.format(acl.id, subnet))
 
             # add entry/rule data
             for entry in acl.entries:
-
                 ports = get_port_range(entry)
                 proto_name = fix_protocol_name(entry['Protocol'])
 
+                # using [entry[]] below to make value a list, which is consistent w/the type in the sec-group
+                # originated rules.  also other functions expect this to be a list, not a string
                 attribs = {'number': entry['RuleNumber'], 'action': entry['RuleAction'], 'protocol': proto_name,
-                           'ipv4_block': entry['CidrBlock'],
+                           'src_dst': [entry['CidrBlock']],
                            'ports': ports}
 
                 if entry['Egress']:
@@ -1336,10 +1368,10 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
                 subnet = node_data  # use a different label for readability
 
                 for acl in subnet['inacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'in', acl['ipv4_block'], acl['protocol'],
+                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'in', acl['src_dst'], acl['protocol'],
                                         acl['ports']])
                 for acl in subnet['outacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'out', acl['ipv4_block'], acl['protocol'],
+                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'out', acl['src_dst'], acl['protocol'],
                                         acl['ports']])
 
     f.flush()
@@ -1458,11 +1490,36 @@ def transform_risky_ports(risky_ports):
     for app, proto_port_data in risky_ports.items():
         for l4_proto, ports in proto_port_data.items():
             for port in ports:
-                try:
-                    result[l4_proto].add(port)
-                except:
-                    pdb.set_trace()
-                    print 'ERROR Could not add {} for {}'.format(port, l4_proto)
+                result[l4_proto].add(port)
+
+    return result
+
+
+def transform_allowed_icmp(allowed_icmp):
+    """
+    transform dict of permitted ICMP protocol "names" to a list of tuples of the form (<type>,<code>)
+
+    See file data-model.txt for additional
+
+    Args:
+        allowed_icmp (dict): database of allowed ICMP types and codes, given by human readable names
+
+    Returns (dict): lists of 2-tuples grouped by address family where each 2-tuple is as mentioned above
+
+    """
+
+    result = {'ipv4': [], 'ipv6': []}
+
+    for af in ['ipv4', 'ipv6']:
+
+        af_data = allowed_icmp.get(af)
+
+        if af_data:
+
+            for type_name, type_data in af_data.items():
+                for type, codes in type_data.items():
+                    for code in codes:
+                        result[af].append((type, code))
 
     return result
 
@@ -1485,7 +1542,7 @@ def chk_ipv4_range_size(ace, threshold):
     """
     # todo P1 fix this to handle non-CIDR block src-dest items, e.g. security-groups (# of hosts contained?)
 
-    ranges = ace['ipv4_block']
+    ranges = ace['src_dst']
 
     for range in ranges:
 
@@ -1515,7 +1572,10 @@ def chk_port_range_size(ace, threshold):
 
     """
 
-    if ace['ports'] == ('NA', 'NA'):
+    if ace['protocol'].lower() == 'icmp':  # todo check for protocol number too?
+        return 'other', 'Check port range does not apply to ICMP'
+
+    elif ace['ports'] == ('NA', 'NA'):
 
         return 'other', 'Check port range size found an NA range {}'.format(ace['ports'])
 
@@ -1560,54 +1620,69 @@ def chk_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
 
     if proto_num not in allowed_protocols:
         return 'fail', 'Protocol {} ({}) is not allowed'.format(proto_num, proto_name)
+
     else:
         return 'pass', 'Protocol {} ({}) is allowed'.format(proto_num, proto_name)
 
 
-def chk_risky_ports(ace, risky_ports):
+def chk_risky_ports(rule, risky_ports, allowed_icmp):
     """
     report if an access control rule contains ports deemed risky
 
     The risky_ports dict is of the form: {'tcp': set(<ports>), 'udp': set(<ports>)}
 
     Args:
-        ace (dict): a network access control rule
+        allowed_icmp (dict): icmp type/code pairs allowed, grouped by address family
+        rule (dict): a network access control rule
         risky_ports (dict): a dict of risky ports grouped by L4 protocol
 
     Returns (tuple): 2 tuple of the form (result, msg), result = pass|fail|other; msg is a text message for humans
 
     """
 
-    if ace['ports'] == ('NA', 'NA'):
-
+    if rule['ports'] == ('NA', 'NA'):
         return 'other', 'Check risky ports - this rule appears to include all ports, so likely includes risky ports'
 
-    ace_proto = ace['protocol']
-    ace_start_port = ace['ports'][0]
-    ace_end_port = ace['ports'][1]
+    rule_proto = rule['protocol']
+    rule_start_port = rule['ports'][0]
+    rule_end_port = rule['ports'][1]
 
-    ace_ports = range(ace_start_port, ace_end_port + 1)  # need to add 1 b/c range() excludes the upper endpoint
-    ace_ports = set(ace_ports)  # convert to set to enable set operations
+    rule_ports = range(rule_start_port, rule_end_port + 1)  # need to add 1 b/c range() excludes the upper endpoint
+    rule_ports = set(rule_ports)  # convert to set to enable set operations
 
-    if ace_proto.isdigit():  # if not then protocol is already in string form
-        i = int(ace_proto)
+    if rule_proto.isdigit():  # if not then protocol is already in string form
+        i = int(rule_proto)
         if i == 6:
-            ace_proto = 'tcp'
+            rule_proto = 'tcp'
         if i == 17:
-            ace_proto = 'udp'
+            rule_proto = 'udp'
+        if i == 1:
+            rule_proto = 'icmp'
 
-    if ace_ports.isdisjoint(risky_ports[ace_proto]):
-        return 'pass', 'No risky {} ports identified in rule port range {}'.format(ace_proto, ace['ports'])
+    if rule_proto == 'icmp':
+        for af in ['ipv4', 'ipv6']:
+            if allowed_icmp[af]:  # check that the list of allowed type/codes is not empty
+                if rule_ports.isdisjoint(allowed_icmp[af]):
+                    return 'pass', 'Only allowed ICMP types/codes ' \
+                                   'found in rule {type_code}'.format(type_code=rule['ports'])
+                else:
+                    return 'fail', 'Disallowed ICMP types/codes ' \
+                                   'found in rule {type_code}'.format(type_code=rule['ports'])
+
+    if rule_ports.isdisjoint(risky_ports[rule_proto]):
+        return 'pass', 'No risky {} ports identified in rule port range {}'.format(rule_proto, rule['ports'])
 
     else:
-        return 'fail', 'Risky {} ports identified in rule port range {}'.format(ace_proto, ace['ports'])
+        return 'fail', 'Risky {} ports identified in rule port range {}'.format(rule_proto, rule['ports'])
 
 
-def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports):
+def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2name,
+                               proto_name2num, risky_ports, allowed_icmp):
     """
     execute checks against rules originating from security groups
 
     Args:
+        allowed_icmp (dict): permitted icmp types/codes, grouped by address family (ipv4, ipv6)
         net_data (dict): contains topo data, inc'g subnets, which contain the ACL info compiled from security groups
         thresholds (dict):  check threshold data
         allowed_protos (list): list of allowed protocols, by L3 protocol ID/number
@@ -1618,6 +1693,8 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
     Returns (None):
 
     """
+
+    # todo P3 update collection of SG originating rule data to store an "action" field to be consistent with NACLs
 
     for node, node_data in net_data.node.iteritems():
 
@@ -1637,25 +1714,26 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
                     results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
 
                     results_list.append(
-                        chk_allowed_protocols(entry,allowed_protos, proto_num2name, proto_name2num))
+                        chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
 
-                    results_list.append(chk_risky_ports(entry, risky_ports))
+                    results_list.append(chk_risky_ports(entry, risky_ports, allowed_icmp))
 
                     # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
                     # todo P2 determine if need to handle differently
                     # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
                     if result_ipv4_range_size[0] == 'pass':
 
-                        logger.info('Pass IPv4 Range Size for rule {subnet_id}/{sg_id}: '
+                        logger.info('Pass cider block size for rule {subnet_id}/{sg_id}: '
                                     '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                           result_msg=result_ipv4_range_size[1]))
+
                     elif result_ipv4_range_size[0] == 'fail':
-                        logger.info('Fail IPv4 Range Size for rule {subnet_id}/{sg_id}: '
+                        logger.info('Fail cider block size for rule {subnet_id}/{sg_id}: '
                                     '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                           result_msg=result_ipv4_range_size[1]))
 
                     elif result_ipv4_range_size[0] == 'other':
-                        logger.info('SG Rule {subnet_id}/{sg_id} found something it '
+                        logger.info('Security-group rule {subnet_id}/{sg_id} cidr block size check found something it '
                                     'could not parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                                           result_msg=result_ipv4_range_size[1]))
 
@@ -1664,12 +1742,16 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
                             result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
-def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports):
+def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports,
+                            allowed_icmp):
     """
     execute checks against rules originating from security groups
 
+    NB: this check ignores rules with the deny action
+
     Args:
-        nacl_data (dict): contains topo data, inc'g subnets, which contain the ACL info compiled from security groups
+        allowed_icmp:
+        nacl_data (dict): contains network acl data for some vpc, see data-model.txt
         thresholds (dict):  check threshold data
         allowed_protos (list): list of allowed protocols, by L3 protocol ID/number
         proto_num2name (dict): flat dict mapping L3 protocol numbers to protocol names
@@ -1680,43 +1762,55 @@ def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2nam
 
     """
 
-    for nacl_id, nacl_data in nacl_data.iteritems():  # todo P3 collapse these by parameterizing the result text?
+    for nacl_id, nacl in nacl_data.iteritems():  # todo P3 collapse these by parameterizing the result text?
 
-        for entry in nacl_data['ingress_entries']:
 
-            entry_id = '/'.join([nacl_id, 'INGRESS', entry['protocol'], str(entry['ports'])])
+        for dir in ['ingress_entries', 'egress_entries']:
 
-            results_list = []
+            for entry in nacl[dir]:
 
-            result_ipv4_range_size = chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
-            results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
+                # skip deny rules, though interesting in general, they do not enable potentially undesired comm's
+                if entry['action'] == 'deny':
+                    continue
 
-            results_list.append(
-                chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
+                dir_string = dir.split('_', 1)[0]
 
-            results_list.append(chk_risky_ports(entry, risky_ports))
+                # entry_id is an attempt to identify an acl entry for later reference, it's not ideal
+                entry_id = '/'.join(['{nacl_id}({nacl_name})'.format(nacl_id=nacl_id, nacl_name=nacl['name']),
+                                     dir_string, str(entry['number']), entry['protocol'], str(entry['ports'])])
 
-            # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
-            # todo P2 determine if need to handle differently
-            # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
-            if result_ipv4_range_size[0] == 'pass':
-                logger.info('Pass IPv4 Range Size for rule {entry_id}: '
-                            '{result_msg}'.format(entry_id=entry_id,
-                                                  result_msg=result_ipv4_range_size[1]))
+                results_list = []  # todo P3 move outside the "dir loop" to collect all results, then emit log msgs?
 
-            elif result_ipv4_range_size[0] == 'fail':
-                logger.info('Fail IPv4 Range Size for rule {entry_id}: '
-                            '{result_msg}'.format(entry_id=entry_id,
-                                                  result_msg=result_ipv4_range_size[1]))
+                result_ipv4_range_size = chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
+                results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
 
-            elif result_ipv4_range_size[0] == 'other':
-                logger.info('SG Rule {entry_id} found something it '
-                            'could not parse {result_msg}'.format(entry_id=entry_id,
-                                                                  result_msg=result_ipv4_range_size[1]))
+                results_list.append(
+                    chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
 
-            for result in results_list:
-                logger.info('{result} for rule {entry_id} {msg}'.format(
-                    result=result[0].title(), entry_id=entry_id, msg=result[1]))
+                results_list.append(chk_risky_ports(entry, risky_ports, allowed_icmp))
+
+                # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
+                # todo P2 determine if need to handle differently
+                # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
+                if result_ipv4_range_size[0] == 'pass':
+                    logger.info('Pass cidr block size for rule {entry_id}: '
+                                '{result_msg}'.format(entry_id=entry_id,
+                                                      result_msg=result_ipv4_range_size[1]))
+
+                elif result_ipv4_range_size[0] == 'fail':
+                    logger.info('Fail cidr block size for rule {entry_id}: '
+                                '{result_msg}'.format(entry_id=entry_id,
+                                                      result_msg=result_ipv4_range_size[1]))
+
+                elif result_ipv4_range_size[0] == 'other':
+                    logger.info('NACL rule {entry_id} cidr block size check found something it '
+                                'could not parse {result_msg}'.format(entry_id=entry_id,
+                                                                      result_msg=result_ipv4_range_size[1]))
+
+                # todo P3 if all results gathered before logging then this loop must move outside the "dir loop"
+                for result in results_list:
+                    logger.info('{result} for rule {entry_id} {msg}'.format(
+                        result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
 def execute_rule_checks(networks):  # figure out what params to pass
@@ -1751,20 +1845,22 @@ def execute_rule_checks(networks):  # figure out what params to pass
     thresholds = load_yaml_file('thresholds.yaml')
     proto_num_to_name = load_yaml_file('proto-num2name.yaml')
     allowed_proto_list = load_yaml_file('allowed_protocols.yaml')
+    allowed_icmp = load_yaml_file('icmp_allowed.yaml')
 
     logger.info('Loaded check yaml files')
 
     proto_name_to_num = create_reverse_dict(proto_num_to_name)
     risky_ports = transform_risky_ports(risky_apps)
-
-    logger.info('Initiating rule checks')
+    allowed_icmp = transform_allowed_icmp(allowed_icmp)
 
     # loop over the networks, then the nodes, looking for subnets - which is where the aggregated SG rules are
     # then loop over the rules conducting checks
     for net, net_data in networks.iteritems():
 
-        check_security_group_rules(net_data, thresholds, allowed_proto_list,
-                                   proto_num_to_name, proto_name_to_num, risky_ports)
+        logger.info('Begin security-group rule checks')
+        check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
+                                   risky_ports, allowed_icmp)
 
-        check_network_acl_rules(net_data.graph['nacls'], thresholds, allowed_proto_list,
-                                proto_num_to_name, proto_name_to_num, risky_ports)
+        logger.info('Begin NACL rule checks')
+        check_network_acl_rules(net_data.graph['nacls'], thresholds, allowed_proto_list, proto_num_to_name,
+                                proto_name_to_num, risky_ports, allowed_icmp)
