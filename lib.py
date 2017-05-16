@@ -1546,6 +1546,8 @@ def chk_ipv4_range_size(ace, threshold):
 
     for range in ranges:
 
+        if isinstance(range, tuple):  # todo P1 handle range containing PL, SG, etc.
+            return 'other', 'Currently only support IPv4 CIDR ranges, got a range of type {}'.format(type(range))
         if range.startswith('sg'):  # not handling security groups yet
             return 'other', 'Got a security group {}'.format(range)  # todo P1 add handling for security groups
         elif not '/' in range:  # not handling anything that's not a CIDR block, i.e. has a /<pfx>
