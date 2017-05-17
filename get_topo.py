@@ -12,11 +12,16 @@
 #   at least add flag to indicate this
 
 import sys
+import logging
 import pdb
 
 import boto3
 
 import lib
+
+# globals
+LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
+LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 
 # filling this dict is what this script is all about
 # dict(vpc-id: nx.Graph), one per vpc
@@ -24,17 +29,44 @@ networks = {}
 
 args = lib.get_args()
 
+# create loggers
+log_general = logging.getLogger('aws_topo')  # root/general logger
+log_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
+
+# setup config/handling for general/root logger
+general_log_file = args.log_file
+
+if not general_log_file:  # defaults to none, indicating default log file
+    general_log_file = 'general.log'
+
+logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
+                    datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename=general_log_file, filemode='w')
+
+log_general.setLevel(logging.INFO)
+
+# configure rule check logging
+# likely need to change how check reporting is handled
+if args.rule_check_report:
+    log_rule_check_handler = logging.FileHandler(args.rule_check_report, mode='w')
+    log_check_report.addHandler(log_rule_check_handler)
+
 key_id, key = lib.get_aws_api_credentials()
 
 if key_id == None or key == None:
     sys.exit('Invalid Credentials')
 
+log_general.info('Sucessfully obtained API credentials')
+
 # create sessions & client for later use
 #  using session b/c  enables selection of aws profile
 aws_session = boto3.session.Session(aws_access_key_id=key_id, aws_secret_access_key=key, region_name=args.region)
 
+log_general.info('Successfully created AWS session')
+
 # get top level aws objects; they are iterables
 vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
+
+log_general.info('Successfully gathered VPCs and security-groups')
 
 
 # collect all the topo and related meta data

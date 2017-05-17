@@ -77,14 +77,24 @@ import matplotlib.pyplot as plot
 
 
 
-LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
-LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
+# LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
+# LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
+#
+# # filename='output/log_output.log'
+# general_log_file = 'output/general.log'
+#
+# logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
+#                     datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename=general_log_file, filemode='w')
 
-# filename='output/log_output.log'
-logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
-                    datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename='output/log_output.log', filemode='w')
-logger = logging.getLogger('aws_topo')  # create our own logger to set log level independent of the global level
-logger.setLevel(logging.INFO)
+log_general = logging.getLogger('aws_topo')  # root/general logger
+# log_general.setLevel(logging.INFO)
+
+# logger for rule check reporting
+# likely need to change how check reporting is handled
+# rule_check_report_file = 'output/rule_check.log'
+# log_rule_check_handler = logging.FileHandler(rule_check_report_file, mode='w')
+log_check_report = logging.getLogger('aws_topo.log_check_report')
+# log_check_report.addHandler(log_rule_check_handler)
 
 
 def load_yaml_file(file_name):
@@ -104,6 +114,13 @@ def load_yaml_file(file_name):
 
 
 def get_args():
+    """
+    Get command line arguments
+
+    Returns (None):
+
+    """
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--region', help='AWS REGION to use, defaults to us-west-2', default='us-west-2')
     parser.add_argument('--graph-format', help='Graph output format; no graph output produced if not specified, options'
@@ -114,12 +131,19 @@ def get_args():
                                                          'file in the directory indicated by --output-dir (or current '
                                                          'directory if not specified', action='store_true')
     parser.add_argument('--export-rules', help='Export rules to csv formatted file named by the value to this argument')
-    parser.add_argument('--log-file', help='Path of file to place log ouput, defaults to output.log')
+    parser.add_argument('--log-file', help='Path to file to place general log ouput, defaults to general.log in the '
+                                           'directory from which this script is started')
+    parser.add_argument('--rule-check-report', help='Path to file in which to place rule check results.  '
+                                                    'By default check results will be placed in the general log file')
 
     return parser.parse_args()
 
 
 def get_aws_api_credentials():
+
+    log_general.info('lib: in get api creds - logging to general.log')
+    log_check_report.info('lib: in get api creds - loggint to rule_check.log')
+
     key_id = os.environ.get('AWS_ACCESS_KEY_ID')
     key = os.environ.get('AWS_SECRET_ACCESS_KEY')
 
@@ -356,7 +380,7 @@ def get_subnets(networks, vpc):
                           'state': subnet.state, 'assoc_route_table': None}
 
         networks[vpc.id].add_node(subnet.id, **subnet_attribs)
-        logger.info('Added node {} to vpc {}'.format(subnet.id, vpc.id))
+        log_general.info('Added node {} to vpc {}'.format(subnet.id, vpc.id))
 
         sec_group_set = set([])  # set of all security groups in this subnet
 
@@ -367,7 +391,7 @@ def get_subnets(networks, vpc):
             # todo P1 add NAT instances as network nodes - check source/dest-check instance proprty to identify natinst
             for group in instance.security_groups:
                 sec_group_set.add(group['GroupId'])
-                logger.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
+                log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
 
         networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
 
@@ -395,7 +419,7 @@ def get_vpc_endpoint_data(network, vpc, aws_session):
     for ep in ep_list:
         ep_attribs = {'service_name': ep['ServiceName'], 'state': ep['State'], 'route_table_ids': ep['RouteTableIds']}
         network.add_node(ep['VpcEndpointId'], attr_dict=ep_attribs)
-        logger.info('Added node {} to vpc: {}'.format(ep, vpc.id))
+        log_general.info('Added node {} to vpc: {}'.format(ep, vpc.id))
 
 
 def get_customer_gw_data():  # should this be outside the VPC loop, e.g. are these logically outside the vpc?
@@ -445,7 +469,7 @@ def get_vpn_gw_data(networks, vpc, session):
         vpngw_attributes = {'name': vpn_gw_name, 'state': vpn_gw['State'], 'avail_zone': vpn_gw.get('AvailabilityZone'),
                             'vpc_attachments': vpn_gw['VpcAttachments']}
         network.add_node(vpn_gw_id, **vpngw_attributes)
-        logger.info('Added node {} to vpc: {}'.format(vpn_gw_id, vpc.id))
+        log_general.info('Added node {} to vpc: {}'.format(vpn_gw_id, vpc.id))
 
 
 def get_nat_gateways(network, vpc, session):
@@ -475,13 +499,13 @@ def get_nat_gateways(network, vpc, session):
         natgw_name = gateway['NatGatewayId']
         attributes = {'state': gateway['State']}
         network.add_node(natgw_name, **attributes)
-        logger.info('Added node {} to vpc: {}'.format(natgw_name, vpc.id))
+        log_general.info('Added node {} to vpc: {}'.format(natgw_name, vpc.id))
 
 
 def get_inetgw_data(networks, vpc):
     for gateway in vpc.internet_gateways.all():
         networks[vpc.id].add_node(gateway.id)
-        logger.info('Added node {} to vpc: {}'.format(gateway.id, vpc.id))
+        log_general.info('Added node {} to vpc: {}'.format(gateway.id, vpc.id))
 
 
 def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
@@ -508,7 +532,7 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
             network_object.add_node(peer.id, **pcx_attributes)
         else:
             # todo handle this correctly (effectively not handling now)
-            logger.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
+            log_general.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
 
     # add pcx'es whose initial request was originated in some OTHER vpc
     for peer in vpc.accepted_vpc_peering_connections.all():
@@ -518,7 +542,7 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
             pcx_attributes = {'accepter_vpc_id': accepter_vpc_id, 'status': peer.status}  # status is a dict
             network_object.add_node(peer.id, **pcx_attributes)
         else:
-            logger.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
+            log_general.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
 
 
 def add_route_table_node(network, vpc, route_table):
@@ -542,7 +566,7 @@ def add_route_table_node(network, vpc, route_table):
     # add "router" to the graph (AWS route table)
     network.add_node(route_table.id)
     network.node[route_table.id]['name'] = route_table_name
-    logger.info('Added node {} to vpc: {}'.format(route_table.id, vpc.id))
+    log_general.info('Added node {} to vpc: {}'.format(route_table.id, vpc.id))
 
 
 def get_route_table_subnet_associations(network, vpc, route_table):
@@ -593,7 +617,7 @@ def get_route_table_subnet_associations(network, vpc, route_table):
 
             # update the assoc_route_table key for the subnet
             # NB: all the subnets have to be added to the network before this happens
-            logger.info('Adding route table: {} to assoc_route_table '
+            log_general.info('Adding route table: {} to assoc_route_table '
                         'field of subnet: {}'.format(route_table.id, subnet_id))
 
             network.node[subnet_id]['assoc_route_table'] = route_table.id
@@ -605,25 +629,25 @@ def get_route_table_subnet_associations(network, vpc, route_table):
             # if the id of the main route-table hasn't been set at the network (Graph) level yet, then set it
             if not network_data_dict['main_route_table']:
                 network_data_dict['main_route_table'] = route_table.id
-                logger.info('Updated main route table to {} for vpc {}'.format(route_table.id, vpc.id))
+                log_general.info('Updated main route table to {} for vpc {}'.format(route_table.id, vpc.id))
 
             # found another route table claiming to be main *with the same ID* as one found previously
             # I believe this should not occur so logging it if it does
             elif network_data_dict['main_route_table'] == route_table.id:  # found another, matching "main" rtb
-                logger.info('Found main route table multiple times, which should probably not occur.  '
+                log_general.info('Found main route table multiple times, which should probably not occur.  '
                             'vpc: {}, rtb: {}'.format(vpc.id, route_table.id))
 
             # another route table, with a different ID, is claiming to be main
             # this definitely shouldn't happen
             else:
-                logger.info('Found two different main route tables: '
+                log_general.info('Found two different main route tables: '
                             'vpc: {}, prev rtb-id: {}, '
                             'curr rtb-id: {}'.format(vpc.id, route_table.id,
                                                      network_data_dict['main_route_table']))
 
         # not main & no subnet OR main and subnet are nonsensical combo's alert (at least AFAIK)
         else:
-            logger.info('Found possibly malformed subnet association data.  '
+            log_general.info('Found possibly malformed subnet association data.  '
                         'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc.id, route_table.id, main_flag,
                                                                                 subnet_id))
 
@@ -687,7 +711,7 @@ def get_route_table_routes(network, vpc, route_table):
                        'pcx_id': pcx_id, 'nat_gw': nat_gw,
                        'state': state, 'origin': origin,
                        'egress_gw': egress_gw})
-        logger.info('Added route for {} to route-table {} '
+        log_general.info('Added route for {} to route-table {} '
                     'in vpc: {}'.format(dest_cidr or dest_pfx, route_table.id, vpc.id))
 
 
@@ -730,7 +754,7 @@ def get_elb_classics(network, vpc):
     Returns:
 
     """
-    logger.info('Coming Soon - ELB classic identification')
+    log_general.info('Coming Soon - ELB classic identification')
 
 
 def get_elb_albs(network, vpc):
@@ -744,7 +768,7 @@ def get_elb_albs(network, vpc):
     Returns:
 
     """
-    logger.info('Coming Soon - ALB (ELBv2) identification')
+    log_general.info('Coming Soon - ALB (ELBv2) identification')
 
 
 def get_wafs(network, vpc):
@@ -758,7 +782,7 @@ def get_wafs(network, vpc):
     Returns:
 
     """
-    logger.info('Coming Soon - WAF identification')
+    log_general.info('Coming Soon - WAF identification')
 
 
 def get_shield(network, vpc):
@@ -772,7 +796,7 @@ def get_shield(network, vpc):
     Returns:
 
     """
-    logger.info('Coming Soon - AWS Sheild identification')
+    log_general.info('Coming Soon - AWS Sheild identification')
 
 
 def add_explicit_subnet_edges(network, vpc):
@@ -798,7 +822,7 @@ def add_explicit_subnet_edges(network, vpc):
             if len(subnets):  # verify there are subnets in the list
                 for subnet in subnets:
                     network.add_edge(route_table, subnet)
-                    logger.info('Added edge {} - {} in vpc {}'.format(route_table, subnet, vpc.id))
+                    log_general.info('Added edge {} - {} in vpc {}'.format(route_table, subnet, vpc.id))
 
 
 def add_implicit_subnet_edge(network, vpc):
@@ -836,7 +860,7 @@ def add_implicit_subnet_edge(network, vpc):
 
             if not node_dict[subnet_id]['assoc_route_table']:
                 network.add_edge(subnet_id, main_route_table_id)
-                logger.info('Added edge {} - {} in vpc {}'.format(subnet_id, main_route_table_id, vpc.id))
+                log_general.info('Added edge {} - {} in vpc {}'.format(subnet_id, main_route_table_id, vpc.id))
 
 
 def add_non_pcx_edges(network, vpc):
@@ -870,7 +894,7 @@ def add_non_pcx_edges(network, vpc):
             route_list = nodes[router].get('routes')  # get the list of routes assoc w/this route-table
 
             if not route_list:
-                logger.info('Skipping empty route table {}'.format(router))
+                log_general.info('Skipping empty route table {}'.format(router))
                 continue
 
             for route in route_list:
@@ -879,24 +903,24 @@ def add_non_pcx_edges(network, vpc):
 
                 if nexthop_name.startswith('pcx'):
                     # eventually just skip pcx'es
-                    logger.info(
+                    log_general.info(
                         'Got nexthop type pcx: {} in rtb: {}, not handled by this function(add_non_peer_conn_edges). '
                         'should be added later'.format(nexthop_name, router))
 
                 # local is the route for the CIDR block attacked to the VPC itself, seems something like a hold down
                 elif nexthop_name == 'local':
-                    logger.info('Got nexthop node type/name "local" in route-table: {} - '
+                    log_general.info('Got nexthop node type/name "local" in route-table: {} - '
                                 'currently this is uninteresting.  Logging occurrence for future inspection '
                                 'if interest changes'.format(router))
 
                 elif nexthop_name not in nodes:  # if the gw "name" is NOT in the node dict
                     # there's a problem, print an error and do nothing
-                    logger.info('nexthop {} does not yet exist as a node in the network, '
+                    log_general.info('nexthop {} does not yet exist as a node in the network, '
                                 'something has gone wrong'.format(nexthop_name))
 
                 else:  # else add an edge
                     network.add_edge(router, nexthop_name)
-                    logger.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
+                    log_general.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
 def add_pcx_edges(network, vpc):
@@ -928,7 +952,7 @@ def add_pcx_edges(network, vpc):
             route_list = nodes[router].get('routes')  # get the list of routes assoc w/this route-table
 
             if not route_list:
-                logger.info('Skipping empty route table {}'.format(router))
+                log_general.info('Skipping empty route table {}'.format(router))
                 continue
 
             for route in route_list:
@@ -937,7 +961,7 @@ def add_pcx_edges(network, vpc):
 
                 if nexthop_name.startswith('pcx'):
                     network.add_edge(router, nexthop_name)  # +edge: current rtb and the gw (next hop)
-                    logger.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
+                    log_general.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
 def build_nets(networks, vpcs, session=None):
@@ -1267,16 +1291,16 @@ def get_nacls(networks, vpcs):
             acl_data[acl.id] = {'name': acl_name, 'default': acl.is_default, 'assoc_subnets': [],
                                 'ingress_entries': [], 'egress_entries': []}
 
-            logger.info('Begin adding NACL {} ({})'.format(acl.id, acl_name))
+            log_general.info('Begin adding NACL {} ({})'.format(acl.id, acl_name))
 
             for subnet_assoc in acl.associations:  # add assoc. subnets to list
 
                 subnet = subnet_assoc['SubnetId']
                 acl_data[acl.id]['assoc_subnets'].append(subnet)
-                logger.info('Added {} to associated subnet list for NACL {}'.format(subnet, acl.id))
+                log_general.info('Added {} to associated subnet list for NACL {}'.format(subnet, acl.id))
 
                 node_data[subnet]['nacl'] = acl.id
-                logger.info('Added NACL {} to subnet {}'.format(acl.id, subnet))
+                log_general.info('Added NACL {} to subnet {}'.format(acl.id, subnet))
 
             # add entry/rule data
             for entry in acl.entries:
@@ -1291,10 +1315,10 @@ def get_nacls(networks, vpcs):
 
                 if entry['Egress']:
                     acl_data[acl.id]['egress_entries'].append(attribs)
-                    logger.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
+                    log_general.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
                 else:
                     acl_data[acl.id]['ingress_entries'].append(attribs)
-                    logger.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
+                    log_general.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
 
 
 def render_gexf(networks, out_dir_string):
@@ -1339,7 +1363,7 @@ def render_pyplot(network, output_dir):
     plot.tight_layout()
     plot.savefig(output_dir + netid)
     plot.clf()
-    logger.info('Render PyPlot {}'.format(output_dir))
+    log_general.info('Render PyPlot {}'.format(output_dir))
 
 
 def export_sgrules_to_csv(networks, outfile='rules.csv'):
@@ -1386,7 +1410,7 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
         output_dir = os.path.curdir
 
     if not graph_format and yaml_export:  # no format specified, but yaml output requested (--export-to-yaml)
-        logger.info('Render to YAML only')
+        log_general.info('Render to YAML only')
         for net_name, network in networks.iteritems():  # todo add code to actually export to yaml
             print net_name, ': '
             pp.pprint(network.graph)
@@ -1409,28 +1433,28 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
 
     elif graph_format == 'gephi':
         if yaml_export:
-            logger.info('Render to Gephi and YAML')
+            log_general.info('Render to Gephi and YAML')
             for network in networks.values():
                 render_gexf(network, output_dir)
                 # add yaml export code
         else:
-            logger.info('Render to Gephi only')
+            log_general.info('Render to Gephi only')
             for network in networks.values():
                 render_gexf(network, output_dir)
 
     elif graph_format == 'pyplot':
         if yaml_export:
-            logger.info('Render to PyPlot and YAML')
+            log_general.info('Render to PyPlot and YAML')
             for network in networks.values():
                 render_pyplot(network, output_dir)
                 # add yaml export code
         else:
-            logger.info('Render to PyPlot only')
+            log_general.info('Render to PyPlot only')
             for network in networks.values():
                 render_pyplot(network, output_dir)
 
     elif graph_format is not None:
-        logger.warning('Render - unknown format requested: {}'.format(graph_format))
+        log_general.warning('Render - unknown format requested: {}'.format(graph_format))
 
     if csv_file:  # should be None if option not specified, otherwise it's a filename with opt. path
 
@@ -1438,7 +1462,7 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
         if os.path.split(csv_file)[0] == '':  # got file name only if path part is empty
             csv_file = os.path.join(output_dir, csv_file)  # save with other output files
 
-        logger.info('Render export rules to CSV file {}'.format(csv_file))
+        log_general.info('Render export rules to CSV file {}'.format(csv_file))
 
         export_sgrules_to_csv(networks, outfile=csv_file)
 
@@ -1464,7 +1488,7 @@ def create_reverse_dict(dict):
         new[v] = k
 
     if len(new) < forward_length:
-        logger.info('Generated protocol name-to-number mapping from number-to-name, it contained multiple entries '
+        log_general.info('Generated protocol name-to-number mapping from number-to-name, it contained multiple entries '
                     'with the same protocol name, which may result in errors when the reverse mapping is used')
     return new
 
@@ -1725,22 +1749,23 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
                     # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
                     if result_ipv4_range_size[0] == 'pass':
 
-                        logger.info('Pass cider block size for rule {subnet_id}/{sg_id}: '
+                        log_check_report.info('Pass cider block size for rule {subnet_id}/{sg_id}: '
                                     '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                           result_msg=result_ipv4_range_size[1]))
 
                     elif result_ipv4_range_size[0] == 'fail':
-                        logger.info('Fail cider block size for rule {subnet_id}/{sg_id}: '
+                        log_check_report.info('Fail cider block size for rule {subnet_id}/{sg_id}: '
                                     '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                           result_msg=result_ipv4_range_size[1]))
 
                     elif result_ipv4_range_size[0] == 'other':
-                        logger.info('Security-group rule {subnet_id}/{sg_id} cidr block size check found something it '
-                                    'could not parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
+                        log_check_report.info('Security-group rule {subnet_id}/{sg_id} cidr'
+                                              ' block size check found something it could not '
+                                              'parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                                           result_msg=result_ipv4_range_size[1]))
 
                     for result in results_list:
-                        logger.info('{result} for rule {entry_id} {msg}'.format(
+                        log_check_report.info('{result} for rule {entry_id} {msg}'.format(
                             result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
@@ -1795,23 +1820,23 @@ def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2nam
                 # todo P2 determine if need to handle differently
                 # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
                 if result_ipv4_range_size[0] == 'pass':
-                    logger.info('Pass cidr block size for rule {entry_id}: '
+                    log_general.info('Pass cidr block size for rule {entry_id}: '
                                 '{result_msg}'.format(entry_id=entry_id,
                                                       result_msg=result_ipv4_range_size[1]))
 
                 elif result_ipv4_range_size[0] == 'fail':
-                    logger.info('Fail cidr block size for rule {entry_id}: '
+                    log_general.info('Fail cidr block size for rule {entry_id}: '
                                 '{result_msg}'.format(entry_id=entry_id,
                                                       result_msg=result_ipv4_range_size[1]))
 
                 elif result_ipv4_range_size[0] == 'other':
-                    logger.info('NACL rule {entry_id} cidr block size check found something it '
+                    log_general.info('NACL rule {entry_id} cidr block size check found something it '
                                 'could not parse {result_msg}'.format(entry_id=entry_id,
                                                                       result_msg=result_ipv4_range_size[1]))
 
                 # todo P3 if all results gathered before logging then this loop must move outside the "dir loop"
                 for result in results_list:
-                    logger.info('{result} for rule {entry_id} {msg}'.format(
+                    log_general.info('{result} for rule {entry_id} {msg}'.format(
                         result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
@@ -1849,7 +1874,7 @@ def execute_rule_checks(networks):  # figure out what params to pass
     allowed_proto_list = load_yaml_file('allowed_protocols.yaml')
     allowed_icmp = load_yaml_file('icmp_allowed.yaml')
 
-    logger.info('Loaded check yaml files')
+    log_general.info('Loaded check yaml files')
 
     proto_name_to_num = create_reverse_dict(proto_num_to_name)
     risky_ports = transform_risky_ports(risky_apps)
@@ -1859,10 +1884,10 @@ def execute_rule_checks(networks):  # figure out what params to pass
     # then loop over the rules conducting checks
     for net, net_data in networks.iteritems():
 
-        logger.info('Begin security-group rule checks')
+        log_general.info('Begin security-group rule checks')
         check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
                                    risky_ports, allowed_icmp)
 
-        logger.info('Begin NACL rule checks')
+        log_general.info('Begin NACL rule checks')
         check_network_acl_rules(net_data.graph['nacls'], thresholds, allowed_proto_list, proto_num_to_name,
                                 proto_name_to_num, risky_ports, allowed_icmp)

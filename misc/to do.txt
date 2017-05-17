@@ -1,4 +1,3 @@
-* !!! Handle NACL's w/in security checks
 * Report for rule checks (in addition to logging)
 * fix logging to handle multiple output thresholds (e.g. warning, info, etc.)
 * handling ICMP protocol in checks (and elsewhere?)
