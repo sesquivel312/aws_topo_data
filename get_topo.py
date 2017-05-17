@@ -11,6 +11,7 @@
 # todo P3 handle isolated nodes differently in visualizations, e.g. move to bottom, different color...
 #   at least add flag to indicate this
 
+import os
 import sys
 import logging
 import pdb
@@ -23,32 +24,44 @@ import lib
 LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 
-# filling this dict is what this script is all about
-# dict(vpc-id: nx.Graph), one per vpc
-networks = {}
-
-args = lib.get_args()
-
 # create loggers
 log_general = logging.getLogger('aws_topo')  # root/general logger
-log_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
+log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
+
+# filling this dict is what this script is all about
+# dict(vpc-id: nx.Graph), one per vpc
+args = lib.get_args()
+
 
 # setup config/handling for general/root logger
-general_log_file = args.log_file
+if not args.output_dir:  # if output dir CLI option not supplied, use the current directory
+    args.output_dir = os.getcwd()
 
-if not general_log_file:  # defaults to none, indicating default log file
-    general_log_file = 'general.log'
+if not args.log_file:  # if no logfile CLI option supplied, log to the default 'general.log' in the current dir
+    args.log_file = os.path.join(args.output_dir, 'general.log')
+else:
+    args.log_file = os.path.join(args.output_dir, args.log_file)
 
-logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
-                    datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename=general_log_file, filemode='w')
+logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
+                    filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
-log_general.setLevel(logging.INFO)
+if args.rule_check_report:
+    log_rule_check_report.propagate = False
+    args.rule_check_report = os.path.join(args.output_dir, args.rule_check_report)
+    rule_check_log_handler = logging.FileHandler(args.rule_check_report, mode='w')
+    log_rule_check_report.addHandler(rule_check_log_handler)
+
+log_general.info('logging to general after setup of handlers')
+log_rule_check_report.info('logging to rule check after setup and assignment of handlers')
+
+
+sys.exit()
 
 # configure rule check logging
 # likely need to change how check reporting is handled
 if args.rule_check_report:
     log_rule_check_handler = logging.FileHandler(args.rule_check_report, mode='w')
-    log_check_report.addHandler(log_rule_check_handler)
+    log_rule_check_report.addHandler(log_rule_check_handler)
 
 key_id, key = lib.get_aws_api_credentials()
 
@@ -68,6 +81,8 @@ vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 
 log_general.info('Successfully gathered VPCs and security-groups')
 
+
+networks = {}
 
 # collect all the topo and related meta data
 lib.build_nets(networks, vpcs, aws_session)

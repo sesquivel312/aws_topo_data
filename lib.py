@@ -120,6 +120,7 @@ def get_args():
     Returns (None):
 
     """
+    # todo P3 verify functions producing output place files into the output directory
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--region', help='AWS REGION to use, defaults to us-west-2', default='us-west-2')
@@ -130,11 +131,15 @@ def get_args():
     parser.add_argument('--export-network-to-yaml', help='flag indicating network data should be exported to a YAML '
                                                          'file in the directory indicated by --output-dir (or current '
                                                          'directory if not specified', action='store_true')
-    parser.add_argument('--export-rules', help='Export rules to csv formatted file named by the value to this argument')
-    parser.add_argument('--log-file', help='Path to file to place general log ouput, defaults to general.log in the '
-                                           'directory from which this script is started')
-    parser.add_argument('--rule-check-report', help='Path to file in which to place rule check results.  '
-                                                    'By default check results will be placed in the general log file')
+    parser.add_argument('--export-rules', help='Path to file in which to place security rules.  Rules are not exported'
+                                               'by default')
+    parser.add_argument('--log-file', help='Name of file in which to place log entries.  If --output-dir is specified '
+                                           'then the log file will be created in the directory specified.  If not the'
+                                           'log file will be created in the current working directory', default=None)
+    parser.add_argument('--rule-check-report', help='Filename to use for rule check results.  By default '
+                                                    'check results will be placed in the general log file.  If the'
+                                                    '--outupt-dir option is specified the rule check report file will '
+                                                    'be placed in the directory supplied to that option',  default=None)
 
     return parser.parse_args()
 
