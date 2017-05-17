@@ -85,16 +85,8 @@ import matplotlib.pyplot as plot
 #
 # logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
 #                     datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename=general_log_file, filemode='w')
-
 log_general = logging.getLogger('aws_topo')  # root/general logger
-# log_general.setLevel(logging.INFO)
-
-# logger for rule check reporting
-# likely need to change how check reporting is handled
-# rule_check_report_file = 'output/rule_check.log'
-# log_rule_check_handler = logging.FileHandler(rule_check_report_file, mode='w')
-log_check_report = logging.getLogger('aws_topo.log_check_report')
-# log_check_report.addHandler(log_rule_check_handler)
+log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
 
 
 def load_yaml_file(file_name):
@@ -145,9 +137,6 @@ def get_args():
 
 
 def get_aws_api_credentials():
-
-    log_general.info('lib: in get api creds - logging to general.log')
-    log_check_report.info('lib: in get api creds - loggint to rule_check.log')
 
     key_id = os.environ.get('AWS_ACCESS_KEY_ID')
     key = os.environ.get('AWS_SECRET_ACCESS_KEY')
@@ -1649,7 +1638,7 @@ def chk_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
         proto_name = proto
         proto_num = name_to_num.get(proto_name)
 
-    if proto_num not in allowed_protocols:
+    if str(proto_num) not in allowed_protocols:
         return 'fail', 'Protocol {} ({}) is not allowed'.format(proto_num, proto_name)
 
     else:
@@ -1754,23 +1743,23 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
                     # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
                     if result_ipv4_range_size[0] == 'pass':
 
-                        log_check_report.info('Pass cider block size for rule {subnet_id}/{sg_id}: '
+                        log_rule_check_report.info('Pass cider block size for rule {subnet_id}/{sg_id}: '
                                     '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                           result_msg=result_ipv4_range_size[1]))
 
                     elif result_ipv4_range_size[0] == 'fail':
-                        log_check_report.info('Fail cider block size for rule {subnet_id}/{sg_id}: '
+                        log_rule_check_report.info('Fail cider block size for rule {subnet_id}/{sg_id}: '
                                     '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                           result_msg=result_ipv4_range_size[1]))
 
                     elif result_ipv4_range_size[0] == 'other':
-                        log_check_report.info('Security-group rule {subnet_id}/{sg_id} cidr'
+                        log_rule_check_report.info('Security-group rule {subnet_id}/{sg_id} cidr'
                                               ' block size check found something it could not '
                                               'parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
                                                                           result_msg=result_ipv4_range_size[1]))
 
                     for result in results_list:
-                        log_check_report.info('{result} for rule {entry_id} {msg}'.format(
+                        log_rule_check_report.info('{result} for rule {entry_id} {msg}'.format(
                             result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
@@ -1825,23 +1814,23 @@ def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2nam
                 # todo P2 determine if need to handle differently
                 # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
                 if result_ipv4_range_size[0] == 'pass':
-                    log_general.info('Pass cidr block size for rule {entry_id}: '
+                    log_rule_check_report.info('Pass cidr block size for rule {entry_id}: '
                                 '{result_msg}'.format(entry_id=entry_id,
                                                       result_msg=result_ipv4_range_size[1]))
 
                 elif result_ipv4_range_size[0] == 'fail':
-                    log_general.info('Fail cidr block size for rule {entry_id}: '
+                    log_rule_check_report.info('Fail cidr block size for rule {entry_id}: '
                                 '{result_msg}'.format(entry_id=entry_id,
                                                       result_msg=result_ipv4_range_size[1]))
 
                 elif result_ipv4_range_size[0] == 'other':
-                    log_general.info('NACL rule {entry_id} cidr block size check found something it '
+                    log_rule_check_report.info('NACL rule {entry_id} cidr block size check found something it '
                                 'could not parse {result_msg}'.format(entry_id=entry_id,
                                                                       result_msg=result_ipv4_range_size[1]))
 
                 # todo P3 if all results gathered before logging then this loop must move outside the "dir loop"
                 for result in results_list:
-                    log_general.info('{result} for rule {entry_id} {msg}'.format(
+                    log_rule_check_report.info('{result} for rule {entry_id} {msg}'.format(
                         result=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
@@ -1889,10 +1878,10 @@ def execute_rule_checks(networks):  # figure out what params to pass
     # then loop over the rules conducting checks
     for net, net_data in networks.iteritems():
 
-        log_general.info('Begin security-group rule checks')
+        log_rule_check_report.info('Begin security-group rule checks')
         check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
                                    risky_ports, allowed_icmp)
 
-        log_general.info('Begin NACL rule checks')
+        log_rule_check_report.info('Begin NACL rule checks')
         check_network_acl_rules(net_data.graph['nacls'], thresholds, allowed_proto_list, proto_num_to_name,
                                 proto_name_to_num, risky_ports, allowed_icmp)

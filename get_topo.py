@@ -45,23 +45,18 @@ else:
 logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
                     filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
-if args.rule_check_report:
-    log_rule_check_report.propagate = False
-    args.rule_check_report = os.path.join(args.output_dir, args.rule_check_report)
+if args.rule_check_report:  # --rule-check-report option specified on CLI
+    log_rule_check_report.propagate = False  # don't duplicate messages in parent loggers
+    args.rule_check_report = os.path.join(args.output_dir, args.rule_check_report)  # prepare var holding log path/file
+
+    # It appears that disabling propagation also stops logging from logging for format info as well, so create that
+    rule_check_log_fmt = logging.Formatter(fmt=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING)
+
+    # now have all the info we need to crate, configure and apply the handler
     rule_check_log_handler = logging.FileHandler(args.rule_check_report, mode='w')
+    rule_check_log_handler.setFormatter(rule_check_log_fmt)
+    rule_check_log_handler.setLevel(logging.INFO)
     log_rule_check_report.addHandler(rule_check_log_handler)
-
-log_general.info('logging to general after setup of handlers')
-log_rule_check_report.info('logging to rule check after setup and assignment of handlers')
-
-
-sys.exit()
-
-# configure rule check logging
-# likely need to change how check reporting is handled
-if args.rule_check_report:
-    log_rule_check_handler = logging.FileHandler(args.rule_check_report, mode='w')
-    log_rule_check_report.addHandler(log_rule_check_handler)
 
 key_id, key = lib.get_aws_api_credentials()
 
@@ -80,7 +75,6 @@ log_general.info('Successfully created AWS session')
 vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 
 log_general.info('Successfully gathered VPCs and security-groups')
-
 
 networks = {}
 
