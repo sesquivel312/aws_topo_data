@@ -21,7 +21,7 @@ import boto3
 import lib
 
 # globals
-# todo P2 move the log setup to a fucntion in lib.py if possible
+# todo P2 move the log setup to a function in lib.py if possible
 # todo P3 adjust log configuration to include the time at execution
 TZ_DATA = lib.get_tz_data()
 APP_NAME = os.path.split(__file__)[1]
