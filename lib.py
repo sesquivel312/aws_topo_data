@@ -41,6 +41,8 @@ import csv
 import getpass
 import sys
 import logging
+from datetime import timedelta
+from time import timezone, tzname, localtime
 import pprint as pp
 
 import pdb
@@ -76,17 +78,58 @@ import matplotlib.pyplot as plot
 # todo add mod-security to topo and rule checks - will require research
 
 
-
-# LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
-# LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
-#
-# # filename='output/log_output.log'
-# general_log_file = 'output/general.log'
-#
-# logging.basicConfig(format=LOG_MSG_FORMAT_STRING,
-#                     datefmt=LOG_TIMESTAMP_FORMAT_STRING, filename=general_log_file, filemode='w')
+# get the loggers
 log_general = logging.getLogger('aws_topo')  # root/general logger
 log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
+
+
+def get_tz_data():
+    """
+    get the offset of the local TZ relative to UTC as a string of the form ([+|-]h:m:s) <tz_name>, e.g. (-07:00:00) MST
+
+    use time.localtime() to get the is_dst flag - i.e. determine if DST is currently in effect
+    
+    use time.tzname to get the timezone name (e.g. MST, etc.).  The attribute(?) tzname is a two tuple of the form
+    (<std-tzname>, <dst-tzname>)
+    
+    use timezone (time.timezone) to get the offset in seconds
+    
+    NB: if a timedelta is negative then str(timedelta) doesn't give us the result we expect.  So, check first.  If
+    it's negative, capture that fact and switch the sign (multiply by -1)
+    
+    then create a timedelta (datetime.timedelta) object using the seconds, which will now be positive regardless of the 
+    local timezone.  Using this object because str(td) will give us the offset in h:m:s format.
+    
+    Then we put the sign, the string representation of the timedelta, and the tzname together and return it
+
+    Returns (string): string representing the offset of the local TZ from UTC in h:m:s
+
+    """
+
+    is_dst = localtime().tm_isdst  # todo P2 deal w/the case where the isdst flag is -1
+
+    # todo P3 determine how time module deals with changes to DST start/end dates
+    # todo P3 detemine what happens when the log entry happens at DST change over - other corner cases?
+    prepared_tzname = ''  # will hold the tzname once it is determined if DST is in effect
+
+    tz_tuple = tzname  # this returns a 2-tuple (<std-tz-name>, <dst-tz-name>)
+
+    if is_dst == 1:
+        prepared_tzname = tz_tuple[1]  # we're in DST, choose the 2nd tzname in the tuple
+    else:
+        prepared_tzname = tz_tuple[0]  # standard tzname, choose the first one in tuple
+
+    sign = '+'
+
+    offset_sec = timezone
+
+    if offset_sec < 0:  # capture the sign and remove it from the value
+        sign = '-'
+        offset_sec *= -1
+
+    td = timedelta(seconds=offset_sec)
+
+    return '({sign}{offset}) {tzname}'.format(sign=sign, offset=str(td), tzname=prepared_tzname)
 
 
 def load_yaml_file(file_name):

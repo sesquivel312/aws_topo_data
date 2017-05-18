@@ -21,7 +21,11 @@ import boto3
 import lib
 
 # globals
-LOG_MSG_FORMAT_STRING = '%(asctime)s (HH:MM) TZN APP %(message)s'
+# todo P2 move the log setup to a fucntion in lib.py if possible
+# todo P3 adjust log configuration to include the time at execution
+TZ_DATA = lib.get_tz_data()
+APP_NAME = os.path.split(__file__)[1]
+LOG_MSG_FORMAT_STRING = '%(asctime)s {tzdata} {app_name} %(message)s'.format(tzdata=TZ_DATA, app_name=APP_NAME)
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 
 # create loggers
