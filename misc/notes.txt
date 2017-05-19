@@ -1,7 +1,3 @@
-Items to be added to topo discovery:
-* cgw (customer gateway) (vgw is already included)
-* vpn = cgw <> vpngw
-* vpce = endpoint (e.g. to S3) x
 
 Misc:
 -----

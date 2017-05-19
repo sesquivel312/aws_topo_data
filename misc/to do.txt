@@ -1,7 +1,4 @@
-* verify ICMP checks detect a failure (add a rule w/disallowed type/code)
-* handling SG's, PL's and other? things in the src/dest spot of a rule
-* add ELB listener checks
-* Report for rule checks (in addition to logging)
+* handling SG's and other (?) things in the src/dest spot of a rule
 * fix logging to handle multiple output thresholds (e.g. warning, info, etc.)
 * add check for rule allows access from anywhere <subnet/host/sgid> << think about this a bit
 * determine how to handle nodes that are in a state other than "in use", e.g. deleted - do we weant them in the DB or not, if they are we should render them differently and include a note when "rendering" to text - look at using some sort of data structure that returns a bunch of 2-tuples of networkx-node-lists & pyplot attributes for rendering those nodes
