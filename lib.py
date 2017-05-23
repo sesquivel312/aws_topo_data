@@ -1276,8 +1276,8 @@ def get_sec_group_rules_by_subnet(networks, security_groups):
     Returns: None
 
     """
+    # todo P1 change this to expand multiple rules that AWS grouped - i.e. one rule per src_dst list entry
     # todo P3 determine if this can/should be refactored to use the collection of VPCs, similar to the nacl function
-    # todo rename inacl to sg-inacl, similar for outacl, to distinguish from network acls
 
     sg_rules = build_sec_group_rule_dict(security_groups)  # build the dict of rules, to be indexed by sec_group ID
 
@@ -1288,7 +1288,7 @@ def get_sec_group_rules_by_subnet(networks, security_groups):
         for n in data.node:  # loop over the graph's nodes
 
             if n.startswith('subnet'):  # only interested in subnet nodes
-                subnet = data.node[n]
+                subnet = data.node[n]  # improve readability
                 subnet['inacl'] = []  # create empty lists in the network node dicts to accept acl info
                 subnet['outacl'] = []
 
@@ -1593,17 +1593,26 @@ def chk_ipv4_range_size(ace, threshold):
 
     NB: the src/dst is accessed via ace['src_dst'] and *it's a list*.  It may contain CIDR prefixes, security-group
     ID's and possibly other forms of src/dest information.
+    
+    A note about the return value: the src_dst key is a list b/c AWS groups rules w/the same src_dst, when the list has
+    more than one entry, then this check is performed for each src_dest entry. The results are returned in a dict, keyed
+    on the src_dst entry with a value that is a 2-tuple of the form (result, msg)
+    
+    There is a todo to expand the rules, one per src_dst entry, which would eliminate the need to deal w/more than one
+    src_dst per rule
 
     Args:
         ace (dict): effectively an access control list entry - see the data-model.txt:network/node/subnet/(in|out)acl
         threshold (int): value of the threshold
 
-    Returns (tuple): 2-tuple, (result, msg), result = pass|fail|other, msg=string message
+    Returns (dict): {<src_dst_entry>: (result, msg), ... } result = pass|fail|other, msg = message string
 
     """
     # todo P1 fix this to handle non-CIDR block src-dest items, e.g. security-groups (# of hosts contained?)
 
     ranges = ace['src_dst']
+
+    # results = {} << possible the start of dealing w/multiple src_dst entries
 
     for range in ranges:
 

@@ -90,7 +90,8 @@ lib.get_sec_group_rules_by_subnet(networks, sec_groups)
 lib.get_nacls(networks, vpcs)
 
 # dump network data to file
-with open('output/net-dump.out', 'w') as f:
+net_dump_file = os.path.join(args.output_dir, 'net-dump.out')
+with open(net_dump_file, 'w') as f:
     lib.dump_network_data(networks, f)
 
 lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, yaml_export=args.export_network_to_yaml,
