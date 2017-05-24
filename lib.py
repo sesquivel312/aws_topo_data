@@ -1072,10 +1072,21 @@ def build_nets(networks, vpcs, session=None):
         # todo P1 add handling of edges to: nat-inst, ???
 
 
-def lookup_sec_group_data(group_id, sg_data):
-    # in the sec group, for now, enhance to return sg ID and name (possibly tags)
+def lookup_sec_group_data(group_id, security_groups):
+    """
+    lookup and return a security group name given it's ID string
+    
+    Possibly extend this to lookup other data (hence the function name)
+    
+    Args:
+        group_id (string): security group ID to map to name 
+        security_groups (boto3 collection): iterable containing security group data
 
-    group_name = [sg.group_name for sg in sg_data if sg.id == group_id][0]
+    Returns (string): group name associated with group_id
+
+    """
+
+    group_name = [sg.group_name for sg in security_groups if sg.id == group_id]
 
     return group_name
 
@@ -1151,7 +1162,7 @@ def get_port_range(rule):
     return port_range
 
 
-def get_rule_add_range(rule):
+def get_rule_address_range(rule):
     """
     gets the address range associated with a rule
 
@@ -1171,19 +1182,19 @@ def get_rule_add_range(rule):
     return ranges
 
 
-def get_source_sec_groups(rule, security_groups):
+def get_rule_sec_groups(rule, security_groups):
     """
-    get a list of the security groups in the source "field" of the rule
+    get a list of the security groups in the source/destination "field" of the rule
 
     Args:
         rule (boto3.EC2.SecurityGroup.ip_permissions/ip_permissions_egress): list(dicts) cont. sec-group access rules
-        security_groups (dict): contains security-group data
+        security_groups (boto3 collection): iterable containing security-group data
 
-    Returns (list): security-groups in the source of a rule
+    Returns (list): each entry is a 3-tuple: (aws_account_user_id, sec_group_id, group_name)
 
     """
 
-    src_sec_groups = []  # gather (acct, sg_id) tuples, this is probably mutex with ip ranges
+    sec_groups = []  # init list of sec group data
 
     if len(rule['UserIdGroupPairs']) > 0:
 
@@ -1191,9 +1202,9 @@ def get_source_sec_groups(rule, security_groups):
             group_id = uid_group_pair['GroupId']
             group_name = lookup_sec_group_data(group_id, security_groups)
             user_id = uid_group_pair['UserId']
-            src_sec_groups.append((user_id, group_id, group_name))
+            sec_groups.append((user_id, group_id, group_name))
 
-    return src_sec_groups
+    return sec_groups
 
 
 # todo refactor to take only sec_group_ID and sec_group data dict - b/c the permissions are already in the latter
@@ -1206,7 +1217,7 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
     Args:
         sec_group_id (string): aws security group ID
         permission_list (boto3.Ec2.SecurityGroup.ip_permissions): list(dicts) cont'g access rules
-        security_groups (dict): contains security-group data
+        security_groups (boto3 collection): iterable containing security-group data
 
     Returns (list): rules in a flattened, more useful format
 
@@ -1224,13 +1235,14 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
         if port_range == ('NA', 'NA') and proto_name == 'ALL':
             port_range == ('ALL', 'ALL')
 
-        # get the sources, which may be cidr blocks or security groups
-        src_sec_groups = get_source_sec_groups(rule, security_groups)
+        # get the sources or destinations, depending on direction and which may be cidr blocks or security groups
+        sec_groups = get_rule_sec_groups(rule, security_groups)
 
-        add_ranges = get_rule_add_range(rule)
-        add_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
+        address_ranges = get_rule_address_range(rule)
 
-        rules.append({'sgid': sec_group_id, 'src_dst': add_ranges, 'protocol': proto_name,
+        address_ranges.extend(sec_groups)
+
+        rules.append({'sgid': sec_group_id, 'src_dst': address_ranges, 'protocol': proto_name,
                       'ports': port_range})
 
     return rules
@@ -1241,7 +1253,7 @@ def build_sec_group_rule_dict(security_groups):
     extract pertinent info from aws security group rules and store in a more useful form
 
     Args:
-        security_groups (dict): contains security group data
+        security_groups (boto3.Collection): iterable containing security group data
 
     Returns (dict): security group rules
 

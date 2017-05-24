@@ -102,7 +102,7 @@ networkx.Graph:
         {
           sgid (string): security group ID, redundant but neecessary for lookups
           protocol (string): all|tcp|ucp|???
-          src_dst (list): list of strings representing CIDR blocks, security groups, ???, for inacl these will be sources, four out acl's they will be destinations
+          src_dst (list): list of strings representing CIDR blocks, security groups (and possibly other identifiers?), for inacl these will be sources, four out acl's they will be destinations
           ports (tuple): 2-tuple representing the destination port range (dest for both in and out acl's).  a single port is represented by a 2tuple with the same value in both slots
         }
       assoc_route_table: None | <rtb-id> << route table ID of the route table to which this subnet is associated  NB: all subnets are associated with one and only one rtb, but those assocaited w/the "main" rtb in a given vpc are not listed in rtb.associations - i.e. you have to find these by subtracting the set of subnets assocaited with route tables from the list of all subnets :(
