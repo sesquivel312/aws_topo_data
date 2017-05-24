@@ -38,8 +38,10 @@ args = lib.get_args()
 
 
 # setup config/handling for general/root logger
-if not args.output_dir:  # if output dir CLI option not supplied, use the current directory
-    args.output_dir = os.getcwd()
+if args.output_dir:
+    os.mkdir(args.output_dir)
+else:
+    args.output_dir = os.getcwd()  # use current directory
 
 if not args.log_file:  # if no logfile CLI option supplied, log to the default 'general.log' in the current dir
     args.log_file = os.path.join(args.output_dir, 'general.log')
