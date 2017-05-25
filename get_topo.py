@@ -38,10 +38,13 @@ args = lib.get_args()
 
 
 # setup config/handling for general/root logger
-if args.output_dir:
-    os.mkdir(args.output_dir)
-else:
-    args.output_dir = os.getcwd()  # use current directory
+try:
+    if args.output_dir:
+        os.makedirs(args.output_dir)  # use makedirs in case user specified a path rather than simply a directory name
+    else:
+        args.output_dir = os.getcwd()  # use current directory
+except OSError:
+    pass  # assume exception means directory exists, if there are other reasons for the exception then fix this
 
 if not args.log_file:  # if no logfile CLI option supplied, log to the default 'general.log' in the current dir
     args.log_file = os.path.join(args.output_dir, 'general.log')

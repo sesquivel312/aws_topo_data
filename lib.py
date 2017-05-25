@@ -1400,8 +1400,19 @@ def prepare_nodes(network):
 
 
 def render_pyplot(network, output_dir):
+    """
+    generate an image of the graph using pyplot
+
+    Args:
+        network (networkx.Graph): network to render
+        output_dir (string): location to deposit image file
+
+    Returns: None
+
+    """
+
     netid = network.graph['vpc']
-    output_dir = os.path.join(output_dir, netid)
+    fname = os.path.join(output_dir, netid)
     pos = nx.spring_layout(network, scale=10)
     prepare_nodes(network.node)
     nx.draw_networkx_nodes(network, pos=pos, with_lables=True, node_size=400, color='c', alpha=0.7, linewidths=None)
@@ -1410,7 +1421,7 @@ def render_pyplot(network, output_dir):
     plot.title(netid)
     plot.axis('off')
     plot.tight_layout()
-    plot.savefig(output_dir + netid)
+    plot.savefig(fname)
     plot.clf()
     log_general.info('Render PyPlot {}'.format(output_dir))
 
@@ -1493,12 +1504,12 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
 
     elif graph_format == 'pyplot':
         if yaml_export:
-            log_general.info('Render to PyPlot and YAML')
+            log_general.info('Rendering to PyPlot and YAML')
             for network in networks.values():
                 render_pyplot(network, output_dir)
                 # add yaml export code
         else:
-            log_general.info('Render to PyPlot only')
+            log_general.info('Rendering to PyPlot')
             for network in networks.values():
                 render_pyplot(network, output_dir)
 
