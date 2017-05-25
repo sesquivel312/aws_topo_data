@@ -32,15 +32,17 @@ LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 log_general = logging.getLogger('aws_topo')  # root/general logger
 log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
 
+args = lib.get_args()
+
 # setup config/handling for root logger
 logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
                     filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
-args = lib.get_args()
-
-lib.setup
+# lib.setup
 if args.output_dir:
-    os.mkdir(args.output_dir)
+    try:
+        os.makedirs(args.output_dir)
+    except
 else:
     args.output_dir = os.getcwd()  # use current directory
 
