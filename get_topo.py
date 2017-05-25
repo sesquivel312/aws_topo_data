@@ -23,6 +23,7 @@ import lib
 # globals
 # todo P2 move the log setup to a function in lib.py if possible
 # todo P3 adjust log configuration to include the time at execution
+
 TZ_DATA = lib.get_tz_data()
 APP_NAME = os.path.split(__file__)[1]
 LOG_MSG_FORMAT_STRING = '%(asctime)s {tzdata} {app_name} %(message)s'.format(tzdata=TZ_DATA, app_name=APP_NAME)
@@ -35,10 +36,6 @@ log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check
 args = lib.get_args()
 
 # setup config/handling for root logger
-logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
-                    filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
-
-
 try:
     if args.output_dir:
         os.makedirs(args.output_dir)  # use makedirs in case user specified a path rather than simply a directory name
@@ -51,6 +48,9 @@ if not args.log_file:  # if no logfile CLI option supplied, log to the default '
     args.log_file = os.path.join(args.output_dir, 'general.log')
 else:
     args.log_file = os.path.join(args.output_dir, args.log_file)
+
+logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
+                    filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
 if args.rule_check_report:  # --rule-check-report option specified on CLI
     log_rule_check_report.propagate = False  # don't duplicate messages in parent loggers
