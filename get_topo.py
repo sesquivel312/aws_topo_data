@@ -32,12 +32,13 @@ LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 log_general = logging.getLogger('aws_topo')  # root/general logger
 log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
 
-# filling this dict is what this script is all about
-# dict(vpc-id: nx.Graph), one per vpc
 args = lib.get_args()
 
+# setup config/handling for root logger
+logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
+                    filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
-# setup config/handling for general/root logger
+
 try:
     if args.output_dir:
         os.makedirs(args.output_dir)  # use makedirs in case user specified a path rather than simply a directory name
@@ -50,9 +51,6 @@ if not args.log_file:  # if no logfile CLI option supplied, log to the default '
     args.log_file = os.path.join(args.output_dir, 'general.log')
 else:
     args.log_file = os.path.join(args.output_dir, args.log_file)
-
-logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
-                    filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
 if args.rule_check_report:  # --rule-check-report option specified on CLI
     log_rule_check_report.propagate = False  # don't duplicate messages in parent loggers
