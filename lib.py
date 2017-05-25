@@ -51,6 +51,7 @@ import netaddr
 import networkx as nx
 import matplotlib.pyplot as plot
 
+# todo P1 adjust  NACLs to use 'inacl', 'outacl' rather than egress/ingress - to make things uniform
 # todo P1 identify that ELB's exist
 # todo P1 identify that WAF/Shield is configured
 # todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
@@ -174,13 +175,12 @@ def get_args():
     parser.add_argument('--rule-check-report', help='Filename to use for rule check results.  By default '
                                                     'check results will be placed in the general log file.  If the'
                                                     '--outupt-dir option is specified the rule check report file will '
-                                                    'be placed in the directory supplied to that option',  default=None)
+                                                    'be placed in the directory supplied to that option', default=None)
 
     return parser.parse_args()
 
 
 def get_aws_api_credentials():
-
     key_id = os.environ.get('AWS_ACCESS_KEY_ID')
     key = os.environ.get('AWS_SECRET_ACCESS_KEY')
 
@@ -655,7 +655,7 @@ def get_route_table_subnet_associations(network, vpc, route_table):
             # update the assoc_route_table key for the subnet
             # NB: all the subnets have to be added to the network before this happens
             log_general.info('Adding route table: {} to assoc_route_table '
-                        'field of subnet: {}'.format(route_table.id, subnet_id))
+                             'field of subnet: {}'.format(route_table.id, subnet_id))
 
             network.node[subnet_id]['assoc_route_table'] = route_table.id
 
@@ -672,21 +672,21 @@ def get_route_table_subnet_associations(network, vpc, route_table):
             # I believe this should not occur so logging it if it does
             elif network_data_dict['main_route_table'] == route_table.id:  # found another, matching "main" rtb
                 log_general.info('Found main route table multiple times, which should probably not occur.  '
-                            'vpc: {}, rtb: {}'.format(vpc.id, route_table.id))
+                                 'vpc: {}, rtb: {}'.format(vpc.id, route_table.id))
 
             # another route table, with a different ID, is claiming to be main
             # this definitely shouldn't happen
             else:
                 log_general.info('Found two different main route tables: '
-                            'vpc: {}, prev rtb-id: {}, '
-                            'curr rtb-id: {}'.format(vpc.id, route_table.id,
-                                                     network_data_dict['main_route_table']))
+                                 'vpc: {}, prev rtb-id: {}, '
+                                 'curr rtb-id: {}'.format(vpc.id, route_table.id,
+                                                          network_data_dict['main_route_table']))
 
         # not main & no subnet OR main and subnet are nonsensical combo's alert (at least AFAIK)
         else:
             log_general.info('Found possibly malformed subnet association data.  '
-                        'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc.id, route_table.id, main_flag,
-                                                                                subnet_id))
+                             'vpc: {}, rtb: {}, main flag: {}, subnet-id: {}'.format(vpc.id, route_table.id, main_flag,
+                                                                                     subnet_id))
 
 
 def get_route_table_routes(network, vpc, route_table):
@@ -749,7 +749,7 @@ def get_route_table_routes(network, vpc, route_table):
                        'state': state, 'origin': origin,
                        'egress_gw': egress_gw})
         log_general.info('Added route for {} to route-table {} '
-                    'in vpc: {}'.format(dest_cidr or dest_pfx, route_table.id, vpc.id))
+                         'in vpc: {}'.format(dest_cidr or dest_pfx, route_table.id, vpc.id))
 
 
 def get_router_data(network, vpc):
@@ -947,13 +947,13 @@ def add_non_pcx_edges(network, vpc):
                 # local is the route for the CIDR block attacked to the VPC itself, seems something like a hold down
                 elif nexthop_name == 'local':
                     log_general.info('Got nexthop node type/name "local" in route-table: {} - '
-                                'currently this is uninteresting.  Logging occurrence for future inspection '
-                                'if interest changes'.format(router))
+                                     'currently this is uninteresting.  Logging occurrence for future inspection '
+                                     'if interest changes'.format(router))
 
                 elif nexthop_name not in nodes:  # if the gw "name" is NOT in the node dict
                     # there's a problem, print an error and do nothing
                     log_general.info('nexthop {} does not yet exist as a node in the network, '
-                                'something has gone wrong'.format(nexthop_name))
+                                     'something has gone wrong'.format(nexthop_name))
 
                 else:  # else add an edge
                     network.add_edge(router, nexthop_name)
@@ -1548,7 +1548,7 @@ def create_reverse_dict(dict):
 
     if len(new) < forward_length:
         log_general.info('Generated protocol name-to-number mapping from number-to-name, it contained multiple entries '
-                    'with the same protocol name, which may result in errors when the reverse mapping is used')
+                         'with the same protocol name, which may result in errors when the reverse mapping is used')
     return new
 
 
@@ -1632,24 +1632,34 @@ def chk_ipv4_range_size(ace, threshold):
     """
     # todo P1 fix this to handle non-CIDR block src-dest items, e.g. security-groups (# of hosts contained?)
 
-    ranges = ace['src_dst']
+    end_points = ace['src_dst']
 
-    # results = {} << possible the start of dealing w/multiple src_dst entries
+    results = []
 
-    for range in ranges:
+    for ep in end_points:
 
-        if isinstance(range, tuple):  # todo P1 handle range containing PL, SG, etc.
-            return 'other', 'Currently only support IPv4 CIDR ranges, got a range of type {}'.format(type(range))
-        if range.startswith('sg'):  # not handling security groups yet
-            return 'other', 'Got a security group {}'.format(range)  # todo P1 add handling for security groups
-        elif not '/' in range:  # not handling anything that's not a CIDR block, i.e. has a /<pfx>
-            return 'other', 'Got an unknown range type {}'.format(range)
-        else:  # todo P1 determine if there are other cases to be handled here
-            cidr = netaddr.IPNetwork(range)
+        # todo P1 determine if there are other cases to be handled here
+
+        if isinstance(ep, tuple):  # todo P1 handle range containing PL, SG, etc.
+            results.append(('other', 'Currently only IPv4 CIDR endpoints are supported, '
+                                     'got endpoint {}'.format(ep)))
+
+        elif not '/' in ep:  # not handling anything that's not a CIDR block, i.e. has a /<pfx>
+            results.append(('other', 'Got an unknown endpoint type {}'.format(ep)))
+
+        else:  # must be a CIDR (is that correct?)
+            # probably not necessary but make sure we get the net even if specified as host address w/prefix
+            cidr = netaddr.IPNetwork(ep)
+
             if cidr.prefixlen < threshold:
-                return 'fail', range
+                results.append(('fail', 'CIDR block {cidr} prefix larger '
+                                       'than threshold {threshold}'.format(cidr=cidr, threshold=threshold)))
 
-    return 'pass', range
+            else:
+                results.append(('pass', 'CIDR block {cidr} prefix less '
+                                        'than threshold {threshold}'.format(cidr=cidr, threshold=threshold)))
+
+    return results
 
 
 def chk_port_range_size(ace, threshold):
@@ -1667,11 +1677,12 @@ def chk_port_range_size(ace, threshold):
     """
 
     if ace['protocol'].lower() == 'icmp':  # todo check for protocol number too?
-        return 'other', 'Check port range does not apply to ICMP'
+        msg = 'Check port range does not apply to ICMP'
+        return [('other', msg)]
 
     elif ace['ports'] == ('NA', 'NA'):
-
-        return 'other', 'Check port range size found an NA range {}'.format(ace['ports'])
+        msg = 'Check port range size found an NA range {}'.format(ace['ports'])
+        return [('other', msg)]
 
     else:
 
@@ -1680,9 +1691,11 @@ def chk_port_range_size(ace, threshold):
         size = int(end) - int(start)
 
         if size > threshold:
-            return 'fail', 'Port range size {} greater than threshold {}'.format(size, threshold)
+            msg = 'Port range size {} greater than threshold {}'.format(size, threshold)
+            return [('fail', msg)]
         else:
-            return 'pass', 'Port range size {} less than or equal to threshold {}'.format(size, threshold)
+            msg = 'Port range size {} less than or equal to threshold {}'.format(size, threshold)
+            return [('pass', msg)]
 
 
 def chk_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
@@ -1713,10 +1726,12 @@ def chk_allowed_protocols(ace, allowed_protocols, num_to_name, name_to_num):
         proto_num = name_to_num.get(proto_name)
 
     if str(proto_num) not in allowed_protocols:
-        return 'fail', 'Protocol {} ({}) is not allowed'.format(proto_num, proto_name)
+        msg = 'Protocol {} ({}) is not allowed'.format(proto_num, proto_name)
+        return [('fail', msg)]
 
     else:
-        return 'pass', 'Protocol {} ({}) is allowed'.format(proto_num, proto_name)
+        msg = 'Protocol {} ({}) is allowed'.format(proto_num, proto_name)
+        return [('pass', msg)]
 
 
 def chk_risky_ports(rule, risky_ports, allowed_icmp):
@@ -1735,7 +1750,8 @@ def chk_risky_ports(rule, risky_ports, allowed_icmp):
     """
 
     if rule['ports'] == ('NA', 'NA'):
-        return 'other', 'Check risky ports - this rule appears to include all ports, so likely includes risky ports'
+        msg = 'Check risky ports - this rule appears to include all ports, so likely includes risky ports'
+        return [('other', msg)]
 
     rule_proto = rule['protocol']
     rule_start_port = rule['ports'][0]
@@ -1757,17 +1773,21 @@ def chk_risky_ports(rule, risky_ports, allowed_icmp):
         for af in ['ipv4', 'ipv6']:
             if allowed_icmp[af]:  # check that the list of allowed type/codes is not empty
                 if rule_ports.isdisjoint(allowed_icmp[af]):
-                    return 'pass', 'Only allowed ICMP types/codes ' \
+                    msg = 'Only allowed ICMP types/codes ' \
                                    'found in rule {type_code}'.format(type_code=rule['ports'])
+                    return [('pass', msg)]
                 else:
-                    return 'fail', 'Disallowed ICMP types/codes ' \
+                    msg = 'Disallowed ICMP types/codes ' \
                                    'found in rule {type_code}'.format(type_code=rule['ports'])
+                    return [('fail', msg)]
 
     if rule_ports.isdisjoint(risky_ports[rule_proto]):
-        return 'pass', 'No risky {} ports identified in rule port range {}'.format(rule_proto, rule['ports'])
+        msg = 'No risky {} ports identified in rule port range {}'.format(rule_proto, rule['ports'])
+        return [('pass', msg)]
 
     else:
-        return 'fail', 'Risky {} ports identified in rule port range {}'.format(rule_proto, rule['ports'])
+        msg = 'Risky {} ports identified in rule port range {}'.format(rule_proto, rule['ports'])
+        return [('fail', msg)]
 
 
 def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2name,
@@ -1797,45 +1817,35 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
             subnet_id = node_id
             subnet_data = node_data
 
-            if subnet_data['inacl']:  # todo P2 refactor this
+            acl_types = ['inacl', 'outacl']
 
-                for entry in subnet_data['inacl']:  # todo P3 collapse these by parameterizing the result text?
+            for acl_type in acl_types:
 
-                    entry_id = '/'.join([subnet_id, entry['sgid'], entry['protocol'], str(entry['ports'])])
+                if subnet_data[acl_type]:
 
-                    results_list = []
+                    for entry in subnet_data[acl_type]:
 
-                    result_ipv4_range_size = chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
-                    results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
+                        # this is a tag with which to reference the rule
+                        entry_id = '/'.join([subnet_id, entry['sgid'], acl_type,
+                                             entry['protocol'], str(entry['ports'])])
 
-                    results_list.append(
-                        chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
+                        results_list = []
 
-                    results_list.append(chk_risky_ports(entry, risky_ports, allowed_icmp))
+                        results_list.extend(chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len']))
 
-                    # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
-                    # todo P2 determine if need to handle differently
-                    # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
-                    if result_ipv4_range_size[0] == 'pass':
+                        results_list.extend(chk_port_range_size(entry, thresholds['port_range_max']))
 
-                        log_rule_check_report.info('Pass cider block size for rule {subnet_id}/{sg_id}: '
-                                    '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                          result_msg=result_ipv4_range_size[1]))
+                        results_list.extend(
+                            chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
 
-                    elif result_ipv4_range_size[0] == 'fail':
-                        log_rule_check_report.info('Fail cider block size for rule {subnet_id}/{sg_id}: '
-                                    '{result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                          result_msg=result_ipv4_range_size[1]))
+                        results_list.extend(chk_risky_ports(entry, risky_ports, allowed_icmp))
 
-                    elif result_ipv4_range_size[0] == 'other':
-                        log_rule_check_report.info('Security-group rule {subnet_id}/{sg_id} cidr'
-                                              ' block size check found something it could not '
-                                              'parse {result_msg}'.format(subnet_id=subnet_id, sg_id=entry['sgid'],
-                                                                          result_msg=result_ipv4_range_size[1]))
+                        # todo P2 determine if need to handle differently
+                        # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
 
-                    for result in results_list:
-                        log_rule_check_report.info('{result} for rule {entry_id} {msg}'.format(
-                            result=result[0].title(), entry_id=entry_id, msg=result[1]))
+                        for result in results_list:
+                            log_rule_check_report.info('{finding} for rule {entry_id} {msg}'.format(
+                                finding=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
 def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports,
@@ -1869,7 +1879,7 @@ def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2nam
                 if entry['action'] == 'deny':
                     continue
 
-                dir_string = dir.split('_', 1)[0]
+                dir_string = dir.split('_', 1)[0]  # get the direction name, don't need the "entries" bit
 
                 # entry_id is an attempt to identify an acl entry for later reference, it's not ideal
                 entry_id = '/'.join(['{nacl_id}({nacl_name})'.format(nacl_id=nacl_id, nacl_name=nacl['name']),
@@ -1877,36 +1887,21 @@ def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2nam
 
                 results_list = []  # todo P3 move outside the "dir loop" to collect all results, then emit log msgs?
 
-                result_ipv4_range_size = chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len'])
-                results_list.append(chk_port_range_size(entry, thresholds['port_range_max']))
+                results_list.extend(chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len']))
 
-                results_list.append(
+                results_list.extend(chk_port_range_size(entry, thresholds['port_range_max']))
+
+                results_list.extend(
                     chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
 
-                results_list.append(chk_risky_ports(entry, risky_ports, allowed_icmp))
+                results_list.extend(chk_risky_ports(entry, risky_ports, allowed_icmp))
 
-                # todo P1 handle logging for ipv4 range chk the same as the other checks!!!
                 # todo P2 determine if need to handle differently
                 # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
-                if result_ipv4_range_size[0] == 'pass':
-                    log_rule_check_report.info('Pass cidr block size for rule {entry_id}: '
-                                '{result_msg}'.format(entry_id=entry_id,
-                                                      result_msg=result_ipv4_range_size[1]))
 
-                elif result_ipv4_range_size[0] == 'fail':
-                    log_rule_check_report.info('Fail cidr block size for rule {entry_id}: '
-                                '{result_msg}'.format(entry_id=entry_id,
-                                                      result_msg=result_ipv4_range_size[1]))
-
-                elif result_ipv4_range_size[0] == 'other':
-                    log_rule_check_report.info('NACL rule {entry_id} cidr block size check found something it '
-                                'could not parse {result_msg}'.format(entry_id=entry_id,
-                                                                      result_msg=result_ipv4_range_size[1]))
-
-                # todo P3 if all results gathered before logging then this loop must move outside the "dir loop"
                 for result in results_list:
-                    log_rule_check_report.info('{result} for rule {entry_id} {msg}'.format(
-                        result=result[0].title(), entry_id=entry_id, msg=result[1]))
+                    log_rule_check_report.info('{finding} for rule {entry_id} {msg}'.format(
+                        finding=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
 def execute_rule_checks(networks):  # figure out what params to pass
@@ -1959,10 +1954,12 @@ def execute_rule_checks(networks):  # figure out what params to pass
     # then loop over the rules conducting checks
     for netid, net_data in networks.iteritems():
 
-        log_rule_check_report.info('Begin security-group rule checks')
+        log_rule_check_report.info('Begin security-group rule checks for VPC {netid}'.format(netid=netid))
+
         check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
                                    risky_ports, allowed_icmp)
 
-        log_rule_check_report.info('Begin NACL rule checks')
+        log_rule_check_report.info('Begin NACL rule checks for VPC {netid}'.format(netid=netid))
+
         check_network_acl_rules(net_data.graph['nacls'], thresholds, allowed_proto_list, proto_num_to_name,
                                 proto_name_to_num, risky_ports, allowed_icmp)
