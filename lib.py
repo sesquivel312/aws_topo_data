@@ -1072,25 +1072,21 @@ def build_nets(networks, vpcs, session=None):
         # todo P1 add handling of edges to: nat-inst, ???
 
 
-def lookup_sec_group_data(group_id, sg_data):
+def lookup_sec_group_data(group_id, security_groups):
     """
-    lookup security group name given it's ID
+    lookup and return a security group name given it's ID string
 
-    data source is ultimately the iterable returned from the all() method of the ec2 resource's security_groups
-    collection.
+    Possibly extend this to lookup other data (hence the function name)
 
     Args:
-        group_id (string): security group ID string
-        sg_data (iterable): the iterable returned by the all() method of the AWS collection object - see AWS API docs
+        group_id (string): security group ID to map to name
+        security_groups (boto3 collection): iterable containing security group data
 
-    Returns (string): name of the security group - obtained from the tag called Name
+    Returns (string): group name associated with group_id
 
     """
-    # todo P3 likely making many round trips - verify and if so, optimize
 
-    # in the sec group, for now, enhance to return sg ID and name (possibly tags)
-
-    group_name = [sg.group_name for sg in sg_data if sg.id == group_id][0]
+    group_name = [sg.group_name for sg in security_groups if sg.id == group_id]
 
     return group_name
 
@@ -1166,7 +1162,7 @@ def get_port_range(rule):
     return port_range
 
 
-def get_rule_add_range(rule):
+def get_rule_address_range(rule):
     """
     gets the address range associated with a rule
 
@@ -1186,19 +1182,19 @@ def get_rule_add_range(rule):
     return ranges
 
 
-def get_source_sec_groups(rule, security_groups):
+def get_rule_sec_groups(rule, security_groups):
     """
-    get a list of the security groups in the source "field" of the rule
+    get a list of the security groups in the source/destination "field" of the rule
 
     Args:
         rule (boto3.EC2.SecurityGroup.ip_permissions/ip_permissions_egress): list(dicts) cont. sec-group access rules
-        security_groups (dict): contains security-group data
+        security_groups (boto3 collection): iterable containing security-group data
 
-    Returns (list): security-groups in the source of a rule
+    Returns (list): each entry is a 3-tuple: (aws_account_user_id, sec_group_id, group_name)
 
     """
 
-    src_sec_groups = []  # gather (acct, sg_id) tuples, this is probably mutex with ip ranges
+    sec_groups = []  # init list of sec group data
 
     if len(rule['UserIdGroupPairs']) > 0:
 
@@ -1206,9 +1202,9 @@ def get_source_sec_groups(rule, security_groups):
             group_id = uid_group_pair['GroupId']
             group_name = lookup_sec_group_data(group_id, security_groups)
             user_id = uid_group_pair['UserId']
-            src_sec_groups.append((user_id, group_id, group_name))
+            sec_groups.append((user_id, group_id, group_name))
 
-    return src_sec_groups
+    return sec_groups
 
 
 # todo refactor to take only sec_group_ID and sec_group data dict - b/c the permissions are already in the latter
@@ -1221,7 +1217,7 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
     Args:
         sec_group_id (string): aws security group ID
         permission_list (boto3.Ec2.SecurityGroup.ip_permissions): list(dicts) cont'g access rules
-        security_groups (dict): contains security-group data
+        security_groups (boto3 collection): iterable containing security-group data
 
     Returns (list): rules in a flattened, more useful format
 
@@ -1239,13 +1235,14 @@ def get_access_rules(sec_group_id, permission_list, security_groups):  # helper 
         if port_range == ('NA', 'NA') and proto_name == 'ALL':
             port_range == ('ALL', 'ALL')
 
-        # get the sources, which may be cidr blocks or security groups
-        src_sec_groups = get_source_sec_groups(rule, security_groups)
+        # get the sources or destinations, depending on direction and which may be cidr blocks or security groups
+        sec_groups = get_rule_sec_groups(rule, security_groups)
 
-        add_ranges = get_rule_add_range(rule)
-        add_ranges.extend(src_sec_groups)  # this should end up containing cidr ranges or group info, not both
+        address_ranges = get_rule_address_range(rule)
 
-        rules.append({'sgid': sec_group_id, 'src_dst': add_ranges, 'protocol': proto_name,
+        address_ranges.extend(sec_groups)
+
+        rules.append({'sgid': sec_group_id, 'src_dst': address_ranges, 'protocol': proto_name,
                       'ports': port_range})
 
     return rules
@@ -1256,7 +1253,7 @@ def build_sec_group_rule_dict(security_groups):
     extract pertinent info from aws security group rules and store in a more useful form
 
     Args:
-        security_groups (dict): contains security group data
+        security_groups (boto3.Collection): iterable containing security group data
 
     Returns (dict): security group rules
 
@@ -1291,8 +1288,8 @@ def get_sec_group_rules_by_subnet(networks, security_groups):
     Returns: None
 
     """
+    # todo P1 change this to expand multiple rules that AWS grouped - i.e. one rule per src_dst list entry
     # todo P3 determine if this can/should be refactored to use the collection of VPCs, similar to the nacl function
-    # todo rename inacl to sg-inacl, similar for outacl, to distinguish from network acls
 
     sg_rules = build_sec_group_rule_dict(security_groups)  # build the dict of rules, to be indexed by sec_group ID
 
@@ -1303,7 +1300,7 @@ def get_sec_group_rules_by_subnet(networks, security_groups):
         for n in data.node:  # loop over the graph's nodes
 
             if n.startswith('subnet'):  # only interested in subnet nodes
-                subnet = data.node[n]
+                subnet = data.node[n]  # improve readability
                 subnet['inacl'] = []  # create empty lists in the network node dicts to accept acl info
                 subnet['outacl'] = []
 
@@ -1609,16 +1606,25 @@ def chk_ipv4_range_size(ace, threshold):
     NB: the src/dst is accessed via ace['src_dst'] and *it's a list*.  It may contain CIDR prefixes, security-group
     ID's and possibly other forms of src/dest information.
 
+    A note about the return value: the src_dst key is a list b/c AWS groups rules w/the same src_dst, when the list has
+    more than one entry, then this check is performed for each src_dest entry. The results are returned in a dict, keyed
+    on the src_dst entry with a value that is a 2-tuple of the form (result, msg)
+
+    There is a todo to expand the rules, one per src_dst entry, which would eliminate the need to deal w/more than one
+    src_dst per rule
+
     Args:
         ace (dict): effectively an access control list entry - see the data-model.txt:network/node/subnet/(in|out)acl
         threshold (int): value of the threshold
 
-    Returns (tuple): 2-tuple, (result, msg), result = pass|fail|other, msg=string message
+    Returns (dict): {<src_dst_entry>: (result, msg), ... } result = pass|fail|other, msg = message string
 
     """
     # todo P1 fix this to handle non-CIDR block src-dest items, e.g. security-groups (# of hosts contained?)
 
     ranges = ace['src_dst']
+
+    # results = {} << possible the start of dealing w/multiple src_dst entries
 
     for range in ranges:
 

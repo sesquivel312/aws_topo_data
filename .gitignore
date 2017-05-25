@@ -1,6 +1,6 @@
 # directories to ignore
 ignore/
-output/
+out*/
 scratch/
 
 
