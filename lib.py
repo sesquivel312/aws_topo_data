@@ -1288,7 +1288,6 @@ def get_sec_group_rules_by_subnet(networks, security_groups):
     Returns: None
 
     """
-    # todo P1 change this to expand multiple rules that AWS grouped - i.e. one rule per src_dst list entry
     # todo P3 determine if this can/should be refactored to use the collection of VPCs, similar to the nacl function
 
     sg_rules = build_sec_group_rule_dict(security_groups)  # build the dict of rules, to be indexed by sec_group ID
@@ -1789,12 +1788,13 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
 
     """
 
+    # todo P2 correct output so that SG rules include an empty rule# field
     # todo P3 update collection of SG originating rule data to store an "action" field to be consistent with NACLs
 
-    for node, node_data in net_data.node.iteritems():
+    for node_id, node_data in net_data.node.iteritems():
 
-        if node.startswith('subnet'):
-            subnet_id = node
+        if node_id.startswith('subnet'):
+            subnet_id = node_id
             subnet_data = node_data
 
             if subnet_data['inacl']:  # todo P2 refactor this
@@ -1926,6 +1926,12 @@ def execute_rule_checks(networks):  # figure out what params to pass
     The file 'proto-num2name.yaml' maps L3 protocol numbers to names only, a utility function
     is called here to add the reverse mapping
 
+    AWS may combine rules.  This can cause the src/dest field to be a list of more than one item.  The list members can
+    be a combination of CIDR blocks, security groups or possibly other AWS objects (prefix lists?).  This is currently
+    handled by running checks against each item in the list.  Expanding the rules has been considered, it's not been
+    ruled out, but for now this is the "better" way - simply b/c it doesn't change how the src/dst data appeared
+    when it came from the AWS API.  This could change in the future
+
     Args:
         networks (dict): of networkx.Graph objects containing network topology data
 
@@ -1951,7 +1957,7 @@ def execute_rule_checks(networks):  # figure out what params to pass
 
     # loop over the networks, then the nodes, looking for subnets - which is where the aggregated SG rules are
     # then loop over the rules conducting checks
-    for net, net_data in networks.iteritems():
+    for netid, net_data in networks.iteritems():
 
         log_rule_check_report.info('Begin security-group rule checks')
         check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
