@@ -1073,6 +1073,21 @@ def build_nets(networks, vpcs, session=None):
 
 
 def lookup_sec_group_data(group_id, sg_data):
+    """
+    lookup security group name given it's ID
+
+    data source is ultimately the iterable returned from the all() method of the ec2 resource's security_groups
+    collection.
+
+    Args:
+        group_id (string): security group ID string
+        sg_data (iterable): the iterable returned by the all() method of the AWS collection object - see AWS API docs
+
+    Returns (string): name of the security group - obtained from the tag called Name
+
+    """
+    # todo P3 likely making many round trips - verify and if so, optimize
+
     # in the sec group, for now, enhance to return sg ID and name (possibly tags)
 
     group_name = [sg.group_name for sg in sg_data if sg.id == group_id][0]
