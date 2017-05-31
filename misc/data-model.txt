@@ -4,9 +4,9 @@ the topology of an AWS VPC
 
 ----
 
-vpcs = boto3.ec2.resource.vpcs iterable -- from .all() method
+vpcs = boto3 collection of vpcs
 
-sec_groups = boto3.ec2.resource.security_groups iterable -- from .all() method
+sec_groups = boto3 collection of security groups
 
 networks:= python dict
  <vpc-id>: networkx.Graph
@@ -51,8 +51,9 @@ sec_group_rule_dict = {
 ---
 
 networkx.Graph:
-  graph: (dict) << this is effectively a dict holding arbitrary data, using it here to store VPC information
-    vpc: <vpc-id>
+  graph: (dict) << this is effectively a dict holding arbitrary data.  It's literally named "graph". using it here to store VPC information
+    vpc: <vpc-id>  # todo P3 change to vpc_id
+    vpc_name (string): name of vpc, if one exists,  from tag: Name
     cidr: <aws cidr assoc w/VPC>
     isdefault: <aws flag indicating this is the default vpc in the account>
     state: <string indicating the state of the aws VPC> << not sure of possible values
@@ -97,7 +98,7 @@ networkx.Graph:
       cidr: ...cidr_block
       assign_publics: ...map_public_ip_on_launch
       state: ...state
-      'sec_groups': set(<sec_group_id>,...)  << this is pythong set oof unique security groups "attached" to the subnet (via the instances on the subnet)
+      'sec_groups': set(<sec_group_id>,...)  << this is a python set of unique security groups "attached" to the subnet (via the instances on the subnet)
       inacl|outacl (list):  list of dicts representing rules, one dict per rule
         {
           sgid (string): security group ID, redundant but neecessary for lookups
@@ -121,11 +122,16 @@ networkx.Graph:
 
     <natgwid>: (dict)
       state: pending| failed|available|deleting|deleted
+      vpc_id (string): id of the vpc in which this natgw is contained (bit redundant but helps w/lookups)
+      subnet_id (string): id of subnet to which this natgw is attached
+
       
 
     <internet_gw_id>: (string)
+        name (string): name, from tag 'Name'
 
     <peer_conn_requester/accepter_id> (string): (dict)
+      name (string): name of peer
       accepter_vpc_id (string): vpc ID of the accepting VPC
       requester_vpc_id (string): vpc ID of the requesting VPC
       status: (dict)

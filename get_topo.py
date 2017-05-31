@@ -79,7 +79,7 @@ aws_session = boto3.session.Session(aws_access_key_id=key_id, aws_secret_access_
 
 log_general.info('Successfully created AWS session')
 
-# get top level aws objects; they are iterables
+# get boto3 collections of vpcs and security-groups, which are iterable
 vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 
 log_general.info('Successfully gathered VPCs and security-groups')

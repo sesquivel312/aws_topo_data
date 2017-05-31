@@ -46,6 +46,7 @@ from time import timezone, tzname, localtime
 import pprint as pp
 
 import pdb
+import traceback
 
 import netaddr
 import networkx as nx
@@ -298,7 +299,8 @@ def dump_network_data(networks, f):
     """
 
     for net_id, net in networks.iteritems():
-        f.write('======= Dumping VPC: {} =======\n'.format(net.graph['vpc']))
+        f.write('======= Dumping VPC: {vpc_name}({vpc_id}) =======\n'.format(vpc_id=net.graph['vpc'],
+                                                                            vpc_name=net.graph['vpc_name']))
         f.write('== VPC Level Data ==\n')
         pp.pprint(net.graph, f)
         f.write('== Node Data ==\n')
@@ -531,54 +533,103 @@ def get_nat_gateways(network, vpc, session):
     natgw_dict = ec2_client.describe_nat_gateways(Filters=[{'Name': 'vpc-id', 'Values': [vpc.id, ]}])
     natgw_list = natgw_dict['NatGateways']  # list of dicts containing attributes of a given nat gateway
 
-    # loop over and add as nodes, collecting desired metadata
+    # loop over ngw list, adding each as a node, along with desired metadata
     for gateway in natgw_list:
-        natgw_name = gateway['NatGatewayId']
-        attributes = {'state': gateway['State']}
-        network.add_node(natgw_name, **attributes)
-        log_general.info('Added node {} to vpc: {}'.format(natgw_name, vpc.id))
+
+        attribs = {'vpc_id': gateway['VpcId'], 'subnet_id': gateway['SubnetId'], 'state': gateway['State']}
+
+        network.add_node(gateway['NatGatewayId'], **attribs)
+
+        msg = 'Added nat gateway node {ngw_id}/{sn_id} to vpc: {vpc_id}'
+        log_general.info(msg.format(ngw_id=gateway['NatGatewayId'],  sn_id=attribs['subnet_id'], vpc_id=vpc.id))
 
 
 def get_inetgw_data(networks, vpc):
     for gateway in vpc.internet_gateways.all():
-        networks[vpc.id].add_node(gateway.id)
+
+        tag_dict = get_specific_aws_tags(gateway.tags,['Name'])
+        gw_name = tag_dict['Name']
+
+        attributes = {'name': gw_name}
+        networks[vpc.id].add_node(gateway.id, **attributes)
+
         log_general.info('Added node {} to vpc: {}'.format(gateway.id, vpc.id))
 
 
 def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
     """
     add VPC peering connections to the node dict of the given networkx Graph
+    
+    peering connections have requester and accepter "properties".  they are what they sound like, the requester is the
+    vpc-id of the vpc from which the peering-connection request was made and the accepter is the vpc-id of the vpc
+    that accepted the peering-connection request.  this information, and associated metadata is contained in separate
+    attributes in boto3.
+    
+    From a topology perspective, peer-connections exist outside VPC's, but here they are treated as existing w/in both
+    the requester and accepter VPC. becuase of this, have have to check both the accepter and requester attributes and
+    add any peer-connections found.  
+    
+    If not handled this way then the vpc on one "side" of the peer-connection-request or the other will not contain the
+    the the peer-connection as a node.  as a result, when the peer-connection edges are added to the graph for the vpc
+    that is missing the peer-connection, the missing node will be added to that graph automatically, by 
+    networkx.add_edge().  This causes the dict over which the function that adds the peer-connection edges to change
+    *while being iterated over*, which of course raises an exception.
+    
+    NB: this function assumes that a PCX is a "fixed" object - i.e. adding it via accepter or requester attributes of
+    a given VPC results in the same data related to the peer-connection.  
 
-    :param network_object (networkx/Graph): Graph representing a VPC and it's topology
-    :param vpc (boto3/Vpc): a VPC class instance (came from a VpcCollection)
-    :return:
+    Args:
+        network_object (networkx.Graph): contains a VPCs topology data
+        vpc (boto3.vpc): Contains VPC configuration data 
+
+    Returns: None
+
     """
 
-    # todo determine how to represent multiple VPC's and the nodes w/in it - topo per account vs per vpc?
-    # todo P2 verify collecting both accepter and requester vpc-id's and not overwriting data (check netwokx doco)
+    # todo P2 move pcxs "up a level" in the data hierarchy, will require a good deal of rework
+    # todo P3 determine how to represent multiple VPC's and the nodes w/in it - topo per account vs per vpc?
 
 
     nodes = network_object.node
 
-    # add pcx'es whose initial request originated in THIS vpc
+    # add pcx'es requested from this VPC
     for peer in vpc.requested_vpc_peering_connections.all():
+
         if peer.id not in nodes:  # if the pcx isn't already a node in the nodes dict
-            requester_info = peer.requester_vpc_info  # this just reduces some typing later
-            requester_vpc_id = requester_info['VpcId']
-            pcx_attributes = {'requester_vpc_id': requester_vpc_id, 'status': peer.status}  # status is a dict
+
+            req_info = peer.requester_vpc_info  # for easier reading/typing
+            acc_info = peer.accepter_vpc_info
+
+            tag_dict = get_specific_aws_tags(peer.tags, ['Name'])
+
+            # status is itself a dict containing a status code and status message
+            pcx_attributes = {'name': tag_dict['Name'], 'requester_vpc_id': req_info['VpcId'],
+                              'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status}
+
             network_object.add_node(peer.id, **pcx_attributes)
+
         else:
             # todo handle this correctly (effectively not handling now)
             log_general.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
 
-    # add pcx'es whose initial request was originated in some OTHER vpc
+    # add pcx'es we accepted (implies we did NOT request it)
     for peer in vpc.accepted_vpc_peering_connections.all():
+
         if peer.id not in nodes:  # if the pcx ID is not a key in the nodes dict, i.e. doesn't yet exist, add it
-            accepter_info = peer.accepter_vpc_info  # eliminates a bit of typing
-            accepter_vpc_id = accepter_info['VpcId']
-            pcx_attributes = {'accepter_vpc_id': accepter_vpc_id, 'status': peer.status}  # status is a dict
+
+            req_info = peer.requester_vpc_info  # for easier reading/typing
+            acc_info = peer.accepter_vpc_info
+
+            tag_dict = get_specific_aws_tags(peer.tags, ['Name'])
+
+            pcx_attributes = {'name': tag_dict['Name'], 'requester_vpc_id': req_info['VpcId'],
+                              'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status}
+
             network_object.add_node(peer.id, **pcx_attributes)
+
         else:
+
+            # todo handle this correctly (effectively not handling now)
             log_general.info('*** attempting to add an already existing pcx: {}'.format(peer.id))
 
 
@@ -771,6 +822,7 @@ def get_router_data(network, vpc):
     # todo (cont'd) in case that looks different - i.e. puts the routes in the route-table as usual
 
     for route_table in vpc.route_tables.all():
+
         add_route_table_node(network, vpc, route_table)
 
         # get the subnet associations data object from AWS API and iterate over it to extract useful info
@@ -967,7 +1019,7 @@ def add_pcx_edges(network, vpc):
     Works by iterating over the nodes and checking their type.  When a router (route-table) node is found, iterate
     over it's routes, grabbing the next hop information.  When the NH is a pcx, add the edge
 
-    NB: this is currently handled separate from edges to other node types b/c there's an issue w/when the PCS's are
+    NB: this is currently handled separate from edges to other node types b/c there's an issue w/when the pcx's are
     added relative to adding edges to them - see add_non_pcx_edges()
 
     Args:
@@ -980,11 +1032,11 @@ def add_pcx_edges(network, vpc):
 
     nodes = network.node
 
-    for cur_node in nodes:
+    for curr_node in nodes:
 
-        if get_node_type(cur_node) == 'router':  # find the route-table nodes
+        if get_node_type(curr_node) == 'router':  # find the route-table nodes
 
-            router = cur_node  # makes following code more readable
+            router = curr_node  # makes following code more readable
 
             route_list = nodes[router].get('routes')  # get the list of routes assoc w/this route-table
 
@@ -1020,12 +1072,12 @@ def build_nets(networks, vpcs, session=None):
 
     """
 
-    # todo verify correct handling of VPN gateways
-    # todo P3 get NACL's
-
     for vpc in vpcs:
+
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
-        vpc_attribs = {'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
+        tag_dict = get_specific_aws_tags(vpc.tags, ['Name'])
+
+        vpc_attribs = {'vpc_name': tag_dict['Name'], 'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
         network = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
@@ -1067,7 +1119,7 @@ def build_nets(networks, vpcs, session=None):
 
         add_non_pcx_edges(network, vpc)
 
-        add_pcx_edges(network, vpc)
+        add_pcx_edges(networks[vpc.id], vpc)
 
         # todo P1 add handling of edges to: nat-inst, ???
 
