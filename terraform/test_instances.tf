@@ -1,29 +1,13 @@
 /*
-	<add descriptive text here>
+	Configuration file for Terraform to build AWS test infrastructure
 
-	todo completely parameterize so can be used to test generally, currently depends on existing AWS objects
+	This file will build the infrastructure depicted in the diagram misc/aws_test_topo_diagram.xml
+	(created using http://draw.io).
+
+	The intent behind the infrastructure represented by this terraform file is to construct a reference environment
+	against which to test the get_topo_data.py script
 
 */
-
-# define variable for vpcid lookups
-variable "vpcid" {  # access with: var.vpcid["vpc-a"]
-	default = {
-		vpc-a = "vpc-39abbb5b"
-		vpc-b = "vpc-79dbc21d"
-	}
-}
-
-# define vars for security group lookups
-variable "secgrpid" {
-	default = {
-		sg-a0 = "sg-48318f31"
-		sg-a1 = "sg-ec7be595"
-		sg-a2 = "sg-a97be5d0"
-		sg-b0 = "sg-1d318f64"
-		sg-b1 = "sg-4e78e637"
-		sg-b2 = "sg-cc78e6b5"
-	}
-}
 
 # define vars for keys
 variable "access_key" {}
@@ -36,10 +20,288 @@ provider "aws" {
 	region 		= "us-west-2"
 }
 
+variable "prefix-lists" {
+  type = "map"
+  default = {
+    pl-us-w-2-s3 = "pl-68a54001"  # "well known" prefix list for S3 in us-west-2
+  }
+}
+
+# create VPCs
+resource "aws_vpc" "vpc-a" {
+  cidr_block       = "172.31.0.0/16"
+
+  tags {
+    Name = "vpc-a"
+  }
+}
+
+resource "aws_vpc" "vpc-b" {
+  cidr_block       = "172.16.0.0/16"
+
+  tags {
+    Name = "vpc-b"
+  }
+}
+
+
+# create security groups
+# a0
+resource "aws_security_group" "sg-a0" {
+  vpc_id = "${aws_vpc.vpc-a.id}"
+
+  tags {
+    Name = "sg-a0"
+  }
+}
+
+resource "aws_security_group_rule" "sga0-r01-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 0
+  to_port     = 65535
+  protocol    = "tcp"
+  cidr_blocks = ["192.0.2.1/32"]
+  security_group_id = "${aws_security_group.sg-a0.id}"
+}
+
+resource "aws_security_group_rule" "sga0-r02-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["172.16.0.0/16"]
+  security_group_id = "${aws_security_group.sg-a0.id}"
+}
+
+resource "aws_security_group_rule" "sga0-r03-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  source_security_group_id = "${aws_security_group.sg-a0.id}"
+  security_group_id = "${aws_security_group.sg-a0.id}"
+}
+
+resource "aws_security_group_rule" "sga0-r04-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 25
+  to_port     = 25
+  protocol    = "tcp"
+  cidr_blocks = ["25.25.25.25/32"]
+  security_group_id = "${aws_security_group.sg-a0.id}"
+}
+
+resource "aws_security_group_rule" "sga0-r05-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 77
+  to_port     = 77
+  protocol    = "tcp"
+  cidr_blocks = ["1.2.3.4/32"]
+  security_group_id = "${aws_security_group.sg-a0.id}"
+}
+
+resource "aws_security_group_rule" "sga0-r06-e" {  #sgname-rule#
+  type        = "egress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+  security_group_id = "${aws_security_group.sg-a0.id}"
+}
+
+# a1
+resource "aws_security_group" "sg-a1" {
+  vpc_id      = "${aws_vpc.vpc-a.id}"
+  
+  tags {
+    Name = "sg-a1"
+  }
+}
+
+resource "aws_security_group_rule" "sga1-r01-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 100
+  to_port     = 200
+  protocol    = "tcp"
+  cidr_blocks = ["192.168.0.1/32"]
+  security_group_id = "${aws_security_group.sg-a1.id}"
+}
+
+resource "aws_security_group_rule" "sga1-r02-i" {  #sgname-rule#
+  type        = "ingress"
+  from_port   = 0
+  to_port     = 65535
+  protocol    = "47"
+  cidr_blocks = ["3.2.4.0/23"]
+  security_group_id = "${aws_security_group.sg-a1.id}"
+}
+
+resource "aws_security_group_rule" "sga1-r03-e" {  #sgname-rule#
+  type        = "egress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+  security_group_id = "${aws_security_group.sg-a1.id}"
+}
+
+# a2
+resource "aws_security_group" "sg-a2" {
+  vpc_id = "${aws_vpc.vpc-a.id}"
+  
+  tags {
+    Name = "sg-a2"
+  }
+}
+
+resource "aws_security_group_rule" "sga2-r01-i" {
+  type        = "ingress"
+  from_port   = 200
+  to_port     = 300
+  protocol    = "tcp"
+  cidr_blocks = ["192.168.0.1/32"]
+  security_group_id = "${aws_security_group.sg-a2.id}"
+}
+
+resource "aws_security_group_rule" "sga2-r02-i" {
+  type = "ingress"
+  from_port   = 0
+  to_port     = 65535
+  protocol    = "47"
+  cidr_blocks = ["3.2.4.0/23"]
+  security_group_id = "${aws_security_group.sg-a2.id}"
+}
+
+resource "aws_security_group_rule" "sga2-r03-e" {
+  type = "egress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+  security_group_id = "${aws_security_group.sg-a2.id}"
+}
+
+# b0
+resource "aws_security_group" "sg-b0" {
+  vpc_id = "${aws_vpc.vpc-b.id}"
+  
+  tags {
+    Name = "sg-b0"
+  }
+}
+
+resource "aws_security_group_rule" "sgb0-r01-i"  {
+  type = "ingress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["172.31.0.0/16"]
+  security_group_id = "${aws_security_group.sg-b0.id}"
+}
+
+resource "aws_security_group_rule" "sgb0-r02-i"  {
+  type = "ingress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  source_security_group_id = "${aws_security_group.sg-b0.id}"
+  security_group_id = "${aws_security_group.sg-b0.id}"
+}
+
+resource "aws_security_group_rule" "sgb0-r03-i" {
+  type = "ingress"
+  from_port   = 22
+  to_port     = 22
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+  security_group_id = "${aws_security_group.sg-b0.id}"
+}
+
+resource "aws_security_group_rule" "sgb0-r04-e"  {
+  type = "egress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+  security_group_id = "${aws_security_group.sg-b0.id}"
+}
+
+# b1
+resource "aws_security_group" "sg-b1" {
+  vpc_id = "${aws_vpc.vpc-b.id}"
+  
+  tags {
+    Name = "sg-b1"
+  }
+}
+
+resource "aws_security_group_rule" "sgb1-r01-i" {  # start with the rules for B1
+  type = "ingress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["172.31.0.0/16"]
+  security_group_id = "${aws_security_group.sg-b1.id}"
+}
+
+resource "aws_security_group_rule" "sgb1-r02-i" {
+  type = "ingress"
+  from_port   = 0
+  to_port     = 65535
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.1/32"]
+  security_group_id = "${aws_security_group.sg-b1.id}"
+}
+
+resource "aws_security_group_rule" "sgb1-r03-e" {
+  type = "egress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+  security_group_id = "${aws_security_group.sg-b1.id}"
+}
+
+# b2
+resource "aws_security_group" "sg-b2" {
+  vpc_id = "${aws_vpc.vpc-b.id}"
+  
+  tags {
+    Name = "sg-b2"
+  }
+}
+
+resource "aws_security_group_rule" "sgb2-r01-i" {  # Time Exceeded/TTL Expired
+  type = "ingress"
+  from_port   = 11
+  to_port     = 0
+  protocol    = "icmp"
+  cidr_blocks = ["172.31.0.0/16"]
+  security_group_id = "${aws_security_group.sg-b2.id}"
+}
+
+resource "aws_security_group_rule" "sgb2-r02-i" {
+  type = "ingress"
+  from_port   = 0
+  to_port     = 65535
+  protocol    = "tcp"
+  cidr_blocks = ["78.24.0.0/15"]
+  security_group_id = "${aws_security_group.sg-b2.id}"
+}
+
+resource "aws_security_group_rule" "sgb2-r03-e" {  # https to PL
+  type = "egress"
+  from_port   = 443
+  to_port     = 443
+  protocol    = "tcp"
+  prefix_list_ids = ["${var.prefix-lists["pl-us-w-2-s3"]}"]
+  security_group_id = "${aws_security_group.sg-b2.id}"
+}
+
 # def nacls
 ## nacl-a1
 resource "aws_network_acl" "nacl-a1" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 
 	ingress {
       rule_no = 1
@@ -85,7 +347,7 @@ resource "aws_network_acl" "nacl-a1" {
 # def subnets
 ## sn-a1 << dual homed host
 resource "aws_subnet" "sn-a1" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 	cidr_block = "172.31.64.0/20"
 	map_public_ip_on_launch = true
 	tags {
@@ -95,7 +357,7 @@ resource "aws_subnet" "sn-a1" {
 
 ## sn-a2 << nat gw here
 resource "aws_subnet" "sn-a2" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 	cidr_block = "172.31.48.0/20"
     tags {
       Name = "sna2"
@@ -104,7 +366,7 @@ resource "aws_subnet" "sn-a2" {
 
 ## sn-a3 (private)
 resource "aws_subnet" "sn-a3" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 	cidr_block = "172.31.32.0/20"
     tags {
       Name = "sna3"
@@ -113,7 +375,7 @@ resource "aws_subnet" "sn-a3" {
 
 ## sn-a4 (private, no association)
 resource "aws_subnet" "sn-a5" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 	cidr_block = "172.31.0.0/20"
     tags {
       Name = "sna4"
@@ -122,13 +384,13 @@ resource "aws_subnet" "sn-a5" {
 
 ## subnet w/out a name in A (private, no association)
 resource "aws_subnet" "sn-a4" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 	cidr_block = "172.31.16.0/20"
 }
 
 ## sn-b1
 resource "aws_subnet" "sn-b1" {
-	vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-b.id}"
 	cidr_block = "172.16.0.0/20"
     tags {
       Name = "snb1"
@@ -137,7 +399,7 @@ resource "aws_subnet" "sn-b1" {
 
 ## sn-b2 not assocaited w/rtb
 resource "aws_subnet" "sn-b2" {
-	vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-b.id}"
 	cidr_block = "172.16.16.0/20"
     tags {
       Name = "snb2"
@@ -146,7 +408,7 @@ resource "aws_subnet" "sn-b2" {
 
 ## sn-b3 for ?? VPCE?
 resource "aws_subnet" "sn-b3" {
-	vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-b.id}"
 	cidr_block = "172.16.32.0/20"
     tags {
       Name = "snb3"
@@ -156,7 +418,7 @@ resource "aws_subnet" "sn-b3" {
 # define routers
 ## rt rt-a1
 resource "aws_route_table" "rt-a1" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
 	propagating_vgws = ["${aws_vpn_gateway.vgw-a1.id}"]
     tags {
       Name = "rta1"
@@ -165,7 +427,7 @@ resource "aws_route_table" "rt-a1" {
 
 ## rt-a2, no explictly attached subnets
 resource "aws_route_table" "rt-a2" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
     tags {
       Name = "rta2"
     }
@@ -173,7 +435,7 @@ resource "aws_route_table" "rt-a2" {
 
 ## rt-b1
 resource "aws_route_table" "rt-b1" {
-	vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-b.id}"
     tags {
       Name = "rtb1"
     }
@@ -181,7 +443,7 @@ resource "aws_route_table" "rt-b1" {
 
 ## rt-b2 << will route to nat instance sn b1
 resource "aws_route_table" "rt-b2" {
-	vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-b.id}"
 	// at some point, see if I can route to another VPC to hit a vgw (virtual private gateway - aka VPN gateway)
 	// propagating_vgws = ["${aws_vpn_gateway.vgw-a1.id}"]
     tags {
@@ -192,7 +454,7 @@ resource "aws_route_table" "rt-b2" {
 # def vpc endpoints
 ## vpce-b1 - NB: the policy is probably not required as it's the same as the default, which is allow *
 resource "aws_vpc_endpoint" "ep-b1" {
-  vpc_id = "${var.vpcid["vpc-b"]}"
+  vpc_id = "${aws_vpc.vpc-b.id}"
   service_name = "com.amazonaws.us-west-2.s3"
   route_table_ids = ["${aws_route_table.rt-b2.id}"]
   policy = <<POLICY
@@ -212,9 +474,10 @@ resource "aws_vpc_endpoint" "ep-b1" {
 # def pcxs
 ## a-b
 resource "aws_vpc_peering_connection" "pcx-a-b" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
-	peer_vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
+	peer_vpc_id = "${aws_vpc.vpc-b.id}"
 	auto_accept = true
+
     tags {
       Name = "pcxab"
     }
@@ -223,7 +486,7 @@ resource "aws_vpc_peering_connection" "pcx-a-b" {
 # def igw's
 ## ig-a1
 resource "aws_internet_gateway" "ig-a1" {
-	vpc_id = "${var.vpcid["vpc-a"]}"
+	vpc_id = "${aws_vpc.vpc-a.id}"
     tags {
       Name = "iga1"
     }
@@ -231,7 +494,7 @@ resource "aws_internet_gateway" "ig-a1" {
 
 ## ig-b1
 resource "aws_internet_gateway" "ig-b1" {
-	vpc_id = "${var.vpcid["vpc-b"]}"
+	vpc_id = "${aws_vpc.vpc-b.id}"
     tags {
       Name = "igb1"
     }
@@ -254,7 +517,7 @@ resource "aws_nat_gateway" "ngw-a1" {
 ## n-a1 << to be attached to host h-a1
 resource "aws_network_interface" "ni-a1" {
 	subnet_id = "${aws_subnet.sn-a1.id}"
-	security_groups = ["${var.secgrpid["sg-a0"]}", "${var.secgrpid["sg-a2"]}"]
+	security_groups = ["${aws_security_group.sg-a0.id}", "${aws_security_group.sg-a2.id}"]
 	attachment = {
 		instance = "${aws_instance.h-a1.id}"
 		device_index = 1
@@ -270,7 +533,7 @@ resource "aws_instance" "h-a1" {
 	ami				= "ami-8a72cdea"
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-a1.id}"
-	vpc_security_group_ids = ["${var.secgrpid["sg-a0"]}", "${var.secgrpid["sg-a1"]}"]
+	vpc_security_group_ids = ["${aws_security_group.sg-a0.id}", "${aws_security_group.sg-a1.id}"]
     tags {
       Name = "ha1"
     }
@@ -281,7 +544,7 @@ resource "aws_instance" "h-a2" {
 	ami				= "ami-8a72cdea"
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-a3.id}"
-	vpc_security_group_ids = ["${var.secgrpid["sg-a1"]}", "${var.secgrpid["sg-a2"]}"]
+	vpc_security_group_ids = ["${aws_security_group.sg-a1.id}", "${aws_security_group.sg-a2.id}"]
     tags {
       Name = "ha2"
     }
@@ -292,7 +555,7 @@ resource "aws_instance" "h-b1" {
 	ami				= "ami-8a72cdea"
 	instance_type	= "t1.micro"
 	subnet_id		= "${aws_subnet.sn-b1.id}"
-	vpc_security_group_ids = ["${var.secgrpid["sg-b0"]}", "${var.secgrpid["sg-b2"]}"]
+	vpc_security_group_ids = ["${aws_security_group.sg-b0.id}", "${aws_security_group.sg-b2.id}"]
     tags {
       Name = "hb1"
     }
@@ -300,10 +563,10 @@ resource "aws_instance" "h-b1" {
 
 ## h-b2 - NAT instance attached to sn-b1
 resource "aws_instance" "h-b2" {
-	ami				= "ami-11fd2e71"
-	instance_type	= "t2.micro"
+	ami				= "ami-2dae821d"  # was "ami-11fd2e71"
+	instance_type	= "t1.micro"  # was t2.micro
 	subnet_id		= "${aws_subnet.sn-b1.id}"
-	vpc_security_group_ids = ["${var.secgrpid["sg-b0"]}", "${var.secgrpid["sg-b2"]}"]
+	vpc_security_group_ids = ["${aws_security_group.sg-b0.id}", "${aws_security_group.sg-b2.id}"]
     source_dest_check = false
     tags {
       Name = "hb2-natinst"
@@ -412,7 +675,7 @@ resource "aws_customer_gateway" "cgw-a1" {
 # def vpn gateways (aws side of vpn)
 ## def vg-a1
 resource "aws_vpn_gateway" "vgw-a1" {
-  vpc_id = "${var.vpcid["vpc-a"]}"
+  vpc_id = "${aws_vpc.vpc-a.id}"
   tags {
     Name = "vgwa1"
   }
