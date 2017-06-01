@@ -1430,19 +1430,6 @@ def get_nacls(networks, vpcs):
                     log_general.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
 
 
-def render_gexf(networks, out_dir_string):
-    """
-    write out gephi file for each network in a dict of networks to a file
-    :param networks: dict of networkx graphs
-    :param out_dir_string: string representing the output directory path
-    :return:
-    """
-    # todo fix output path with os.path methods
-
-    for net_id, net_graph in networks.items():
-        nx.write_gexf(net_graph, out_dir_string + net_id + '.gexf', prettyprint=True)
-
-
 def prepare_nodes(network):
     """
     This function will loop over the nodes, examine them to determine what color and other attributes should
@@ -1457,6 +1444,19 @@ def prepare_nodes(network):
 
     """
     pass
+
+
+def render_gexf(networks, out_dir_string):
+    """
+    write out gephi file for each network in a dict of networks to a file
+    :param networks: dict of networkx graphs
+    :param out_dir_string: string representing the output directory path
+    :return:
+    """
+    # todo fix output path with os.path methods
+
+    for net_id, net_graph in networks.items():
+        nx.write_gexf(net_graph, out_dir_string + net_id + '.gexf', prettyprint=True)
 
 
 def render_pyplot(network, output_dir):
