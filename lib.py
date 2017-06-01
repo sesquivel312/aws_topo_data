@@ -418,7 +418,8 @@ def get_subnets(networks, vpc):
                           'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
                           'state': subnet.state, 'assoc_route_table': None}
 
-        networks[vpc.id].add_node(subnet.id, **subnet_attribs)
+        vpc_name = get_aws_object_name(vpc.tags)
+        networks[vpc_name].add_node(subnet.id, **subnet_attribs)
         log_general.info('Added node {} to vpc {}'.format(subnet.id, vpc.id))
 
         sec_group_set = set([])  # set of all security groups in this subnet
@@ -432,7 +433,7 @@ def get_subnets(networks, vpc):
                 sec_group_set.add(group['GroupId'])
                 log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
 
-        networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
+        networks[vpc_name].node[subnet.id]['sec_groups'] = sec_group_set
 
 
 def get_vpc_endpoint_data(network, vpc, aws_session):
@@ -488,7 +489,9 @@ def get_vpn_gw_data(networks, vpc, session):
     """
 
     # setup some useful local variables
-    network = networks[vpc.id]
+    vpc_name = get_aws_object_name(vpc.tags)
+
+    network = networks[vpc_name]
 
     # must use ec2.client in order to access vpn gateway info
     ec2_client = session.client('ec2')
@@ -545,13 +548,15 @@ def get_nat_gateways(network, vpc, session):
 
 
 def get_inetgw_data(networks, vpc):
+
+    vpc_name = get_aws_object_name(vpc.tags)
+
     for gateway in vpc.internet_gateways.all():
 
-        tag_dict = get_specific_aws_tags(gateway.tags,['Name'])
-        gw_name = tag_dict['Name']
+        gw_name = get_aws_object_name(gateway.tags)  # tag_dict['Name']
 
         attributes = {'name': gw_name}
-        networks[vpc.id].add_node(gateway.id, **attributes)
+        networks[vpc_name].add_node(gateway.id, **attributes)
 
         log_general.info('Added node {} to vpc: {}'.format(gateway.id, vpc.id))
 
@@ -1075,12 +1080,14 @@ def build_nets(networks, vpcs, session=None):
     for vpc in vpcs:
 
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
-        tag_dict = get_specific_aws_tags(vpc.tags, ['Name'])
+        vpc_name = get_aws_object_name(vpc.tags)
 
-        vpc_attribs = {'vpc_name': tag_dict['Name'], 'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
+        # tag_dict = get_specific_aws_tags(vpc.tags, ['Name'])
+
+        vpc_attribs = {'vpc_name': vpc_name, 'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
                        'state': vpc.state, 'main_route_table': None}  # collect node attributes
 
-        network = networks[vpc.id] = nx.Graph(vpc=vpc.id, **vpc_attribs)
+        network = networks[vpc_name] = nx.Graph(vpc=vpc.id, **vpc_attribs)
 
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
@@ -1119,7 +1126,7 @@ def build_nets(networks, vpcs, session=None):
 
         add_non_pcx_edges(network, vpc)
 
-        add_pcx_edges(networks[vpc.id], vpc)
+        add_pcx_edges(networks[vpc_name], vpc)
 
         # todo P1 add handling of edges to: nat-inst, ???
 
@@ -1380,10 +1387,12 @@ def get_nacls(networks, vpcs):
 
     for vpc in vpcs:
 
-        graph_data = networks[vpc.id].graph
+        vpc_name = get_aws_object_name(vpc.tags)
+
+        graph_data = networks[vpc_name].graph
         graph_data['nacls'] = {}  # todo use setdefault?
         acl_data = graph_data['nacls']
-        node_data = networks[vpc.id].node
+        node_data = networks[vpc_name].node
 
         for acl in vpc.network_acls.all():
 
