@@ -8,21 +8,6 @@ vpcs = boto3 collection of vpcs
 
 sec_groups = boto3 collection of security groups
 
-networks:= python dict
- <vpc-id>: networkx.Graph
-
----
-
-sec_group_rule_dict:= dict of rules for each sec_group
-  {
-    <security_group.id>: {
-          inacl: <formatted ace string>,  << taken from ec2.SecurityGroup.ip_permissions
-          outacl: <formatted ace string> << taken from ec2.SecurityGroup.ip_permissions_egress
-          },
-    ...
-  }
-
-^^ the above should change to structure below - which is data, rather than formatted strings
 sec_group_rule_dict = {
   'sec_group_id': <sgid>,
   'inacl': [
@@ -48,12 +33,18 @@ sec_group_rule_dict = {
   ]
 }
 
+network (dict):
+    <vpc_id> (string): AWS vpc ID
+        <networkx.Graph>: holds topology and other data (see below)
+
 ---
 
 networkx.Graph:
-  graph: (dict) << this is effectively a dict holding arbitrary data.  It's literally named "graph". using it here to store VPC information
-    vpc: <vpc-id>  # todo P3 change to vpc_id
-    vpc_name (string): name of vpc, if one exists,  from tag: Name
+
+  graph (dict): arbitrary data related to graph
+    vpc_id (string): AWS vpc ID, this is redundant w/the key for the graph in the networks dict, makes simpler lookups
+    vpc_name (string): name of VPC from tags or the vpc-id if name !exist
+    name: (string): networkx.Graph.name set to vpc_name at graph creation time  # this is what __str__ looks for when one does: print G, set this to b
     cidr: <aws cidr assoc w/VPC>
     isdefault: <aws flag indicating this is the default vpc in the account>
     state: <string indicating the state of the aws VPC> << not sure of possible values
@@ -71,10 +62,7 @@ networkx.Graph:
           ports (tuple): 2tuple of the form (start, end), where the port range is start-end (end=start if one port)
 
 
-
-
-
-  node: (dict) << dict of nodes, top level keys are the network nodes, e.g. subnets, vpngws, etc
+  node (dict): contains graph nodes and associated meta data
 
     <route_table_id> (string: 'rtb-...')  << this is a route table - which I'm adding as a node in the network - i.e. a router
       name (string): name of the route route table from tags, or None
@@ -107,10 +95,8 @@ networkx.Graph:
           ports (tuple): 2-tuple representing the destination port range (dest for both in and out acl's).  a single port is represented by a 2tuple with the same value in both slots
         }
       assoc_route_table: None | <rtb-id> << route table ID of the route table to which this subnet is associated  NB: all subnets are associated with one and only one rtb, but those assocaited w/the "main" rtb in a given vpc are not listed in rtb.associations - i.e. you have to find these by subtracting the set of subnets assocaited with route tables from the list of all subnets :(
-      sec_groups: python set of boto3.ec2.SecurityGroup.id
-      nacl (string): id of the NACL assocaited with this subnet, or None
 
-    <vpngatewayid>: (dict)
+    <vpngatewayid> (dict):
       name (string): name of this gateway (from tags with Key = Name)
       state (string): 'pending'|'available'|'deleting'|'deleted'
       avail_zone (string): AWS AZ in which this vgw resides (AvailabilityZone)

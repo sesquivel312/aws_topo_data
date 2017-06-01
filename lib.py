@@ -299,8 +299,8 @@ def dump_network_data(networks, f):
     """
 
     for net_id, net in networks.iteritems():
-        f.write('======= Dumping VPC: {vpc_name}({vpc_id}) =======\n'.format(vpc_id=net.graph['vpc'],
-                                                                            vpc_name=net.graph['vpc_name']))
+        f.write('======= Dumping VPC: {vpc_name}({vpc_id}) =======\n'.format(vpc_id=net_id,
+                                                                             vpc_name=net.graph['vpc_name']))
         f.write('== VPC Level Data ==\n')
         pp.pprint(net.graph, f)
         f.write('== Node Data ==\n')
@@ -422,9 +422,9 @@ def get_subnets(networks, vpc):
                           'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
                           'state': subnet.state, 'assoc_route_table': None}
 
-        vpc_name = get_aws_object_name(vpc.tags)
-        networks[vpc_name].add_node(subnet.id, **subnet_attribs)
-        log_general.info('Added node {} to vpc {}'.format(subnet.id, vpc.id))
+        # vpc_name = get_aws_object_name(vpc.tags)
+        networks[vpc.id].add_node(subnet.id, **subnet_attribs)
+        log_general.info('Added subnet node {} to vpc {}'.format(subnet.id, vpc.id))
 
         sec_group_set = set([])  # set of all security groups in this subnet
 
@@ -437,7 +437,7 @@ def get_subnets(networks, vpc):
                 sec_group_set.add(group['GroupId'])
                 log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
 
-        networks[vpc_name].node[subnet.id]['sec_groups'] = sec_group_set
+        networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
 
 
 def get_vpc_endpoint_data(network, vpc, aws_session):
@@ -493,9 +493,7 @@ def get_vpn_gw_data(networks, vpc, session):
     """
 
     # setup some useful local variables
-    vpc_name = get_aws_object_name(vpc.tags)
-
-    network = networks[vpc_name]
+    network = networks[vpc.id]
 
     # must use ec2.client in order to access vpn gateway info
     ec2_client = session.client('ec2')
@@ -504,17 +502,20 @@ def get_vpn_gw_data(networks, vpc, session):
 
     returned_data_dict = ec2_client.describe_vpn_gateways(Filters=filters)
 
-    vpn_gws = returned_data_dict['VpnGateways']
+    vpn_gws = returned_data_dict['VpnGateways']  # this is a list
 
-    # the data we need is contained in a list, which is the value of an item in the dict returned above
     for vpn_gw in vpn_gws:
+
         # get vpn gw's attached to this VPC and add them as nodes
         # want the availability zone but it's not always available
         vpn_gw_name = get_aws_object_name(vpn_gw['Tags'])
         vpn_gw_id = vpn_gw['VpnGatewayId']
+
         vpngw_attributes = {'name': vpn_gw_name, 'state': vpn_gw['State'], 'avail_zone': vpn_gw.get('AvailabilityZone'),
                             'vpc_attachments': vpn_gw['VpcAttachments']}
+
         network.add_node(vpn_gw_id, **vpngw_attributes)
+
         log_general.info('Added node {} to vpc: {}'.format(vpn_gw_id, vpc.id))
 
 
@@ -553,16 +554,15 @@ def get_nat_gateways(network, vpc, session):
 
 def get_inetgw_data(networks, vpc):
 
-    vpc_name = get_aws_object_name(vpc.tags)
-
     for gateway in vpc.internet_gateways.all():
 
         gw_name = get_aws_object_name(gateway.tags)  # tag_dict['Name']
 
         attributes = {'name': gw_name}
-        networks[vpc_name].add_node(gateway.id, **attributes)
 
-        log_general.info('Added node {} to vpc: {}'.format(gateway.id, vpc.id))
+        networks[vpc.id].add_node(gateway.id, **attributes)
+
+        log_general.info('Added internet-gateway node {} to vpc: {}'.format(gateway.id, vpc.id))
 
 
 def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
@@ -1086,12 +1086,10 @@ def build_nets(networks, vpcs, session=None):
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
         vpc_name = get_aws_object_name(vpc.tags)
 
-        # tag_dict = get_specific_aws_tags(vpc.tags, ['Name'])
+        vpc_attribs = {'vpc_id': vpc.id, 'vpc_name': vpc_name, 'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
+                       'state': vpc.state, 'main_route_table': None, 'nacls': {}}  # collect node attributes
 
-        vpc_attribs = {'vpc_name': vpc_name, 'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
-                       'state': vpc.state, 'main_route_table': None}  # collect node attributes
-
-        network = networks[vpc_name] = nx.Graph(vpc=vpc.id, **vpc_attribs)
+        network = networks[vpc.id] = nx.Graph(**vpc_attribs)
 
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
@@ -1130,7 +1128,7 @@ def build_nets(networks, vpcs, session=None):
 
         add_non_pcx_edges(network, vpc)
 
-        add_pcx_edges(networks[vpc_name], vpc)
+        add_pcx_edges(networks[vpc.id], vpc)
 
         # todo P1 add handling of edges to: nat-inst, ???
 
@@ -1391,12 +1389,9 @@ def get_nacls(networks, vpcs):
 
     for vpc in vpcs:
 
-        vpc_name = get_aws_object_name(vpc.tags)
-
-        graph_data = networks[vpc_name].graph
-        graph_data['nacls'] = {}  # todo use setdefault?
-        acl_data = graph_data['nacls']
-        node_data = networks[vpc_name].node
+        net_data = networks[vpc.id].graph
+        acl_data = net_data['nacls']
+        node_data = networks[vpc.id].node
 
         for acl in vpc.network_acls.all():
 
@@ -1428,10 +1423,10 @@ def get_nacls(networks, vpcs):
 
                 if entry['Egress']:
                     acl_data[acl.id]['egress_entries'].append(attribs)
-                    log_general.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
+                    log_general.info('Added acl entry to {} in network {}'.format(acl.id, vpc.id))
                 else:
                     acl_data[acl.id]['ingress_entries'].append(attribs)
-                    log_general.info('Added entry to {} in network {}'.format(acl.id, vpc.id))
+                    log_general.info('Added acl entry to {} in network {}'.format(acl.id, vpc.id))
 
 
 def prepare_nodes(network):
@@ -1489,31 +1484,86 @@ def render_gexf(networks, out_dir_string):
         nx.write_gexf(net_graph, out_dir_string + net_id + '.gexf', prettyprint=True)
 
 
-def render_pyplot(network, output_dir):
+def render_pyplot(net, output_dir, node_cmap=None):
     """
     generate an image of the graph using pyplot
+    
+    Some useful matplot lib info:
+    
+        color: 
+            single characters: c:cyane, k:black, etc.
+            gray values: 0.0..1.0 (as a string - i.e. in quotes)
+            html color strings: '#rrggbb', where xx is a hex value
+            (r, g, b[, a])
+        
+        font family:
+            serif (times), sans-serif (helvetica), cursive (zapf-chancery), fantasy (western), 
+            monospace (courier) (this) is an example only, apprently networkx only exposes the family, not the fonts?
+        
+        font weight: 'light', 'normal', 'medium', 'semibold', 'bold', 'heavy', 'black'
+    
+    useful networkx info:
+        
+        draw_networkx_nodes:
+            
+            node_color:
+                this is a list of colors that is the same length as the output of G.nodes().  I assume that nodes()
+                will result in nodes being in some "specific" order such that creating the color list as below will
+                be the same between calls to nodes(), as long as the graph data doesn't change between calls.
+                
+                NB: the technique was found here: 
+                https://stackoverflow.com/questions/13517614/
+                draw-different-color-for-nodes-in-networkx-based-on-their-node-value
+                
+                The technique was adapted for use here by mapping the node-id prefix to a color, via the node_cmap
+                which can be provided as a parameter if desired.  The default maps as follows:
+                
+                subnet: gray
+                route-table: cyan
+                else: red
 
     Args:
-        network (networkx.Graph): network to render
+        node_cmap (dict): maps node types to color values (0.0 .. 1.0) 
+        net (networkx.Graph): network to render
         output_dir (string): location to deposit image file
 
     Returns: None
 
     """
 
-    labels = get_pyplot_label_dict(network)
-    netid = network.graph['vpc_name']
+    if not node_cmap:
+        node_cmap = {'subnet': '0.5',
+                     'rtb': 'c',
+                     'igw': 'r',
+                     'nat': 'r',
+                     'pcx': 'r',
+                     'vgw': 'r',
+                     'vpce': 'r'}
+
+    labels = get_pyplot_label_dict(net)
+    netid = net.graph['vpc_name']
     fname = os.path.join(output_dir, netid)
-    pos = nx.spring_layout(network, scale=10)
-    prepare_nodes(network.node)
-    nx.draw_networkx_nodes(network, pos=pos, with_lables=True, node_size=400, color='c', alpha=0.7, linewidths=None)
-    nx.draw_networkx_labels(network, labels=labels, pos=pos, font_size=9)
-    nx.draw_networkx_edges(network, pos)
+
+    node_clist = [node_cmap.get(node.split('-')[0], 'c') for node in net.nodes()]
+
+    pos = nx.spring_layout(net, scale=10)
+
+    prepare_nodes(net.node)
+
+    nx.draw_networkx_nodes(net, pos=pos, with_lables=True, node_size=800,
+                           node_color=node_clist, alpha=0.5, linewidths=None)
+
+    nx.draw_networkx_labels(net, labels=labels, pos=pos, font_weight='medium',
+                            font_size=10)
+
+    nx.draw_networkx_edges(net, pos, edge_color='k', alpha=0.8)
+
     plot.title(netid)
     plot.axis('off')
     plot.tight_layout()
     plot.savefig(fname)
     plot.clf()
+
     log_general.info('Render PyPlot {}'.format(output_dir))
 
 
