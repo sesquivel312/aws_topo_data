@@ -414,6 +414,10 @@ def get_subnets(networks, vpc):
     for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
 
         subnet_name = get_aws_object_name(subnet.tags)
+
+        if subnet_name == 'NAME_NOT_EXIST':
+            subnet_name = subnet.id
+
         subnet_attribs = {'name': subnet_name, 'avail_zone': subnet.availability_zone, 'default': subnet.default_for_az,
                           'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
                           'state': subnet.state, 'assoc_route_table': None}
@@ -1446,6 +1450,32 @@ def prepare_nodes(network):
     pass
 
 
+def get_pyplot_label_dict(network):
+    """
+    create a dict mapping graph nodes to the label used when rendering the node using pyplot
+    
+    Args:
+        network (dict): dict of network.Graph objects 
+
+    Returns (dict): the mapping described above
+
+    """
+
+    map = {}
+
+    for node_id, node_data in network.node.items():
+
+        label = node_data.get('name')
+
+        if not label:
+
+            label = node_id  # if there's no name key use the node id
+
+        map[node_id] = label
+
+    return map
+
+
 def render_gexf(networks, out_dir_string):
     """
     write out gephi file for each network in a dict of networks to a file
@@ -1471,12 +1501,13 @@ def render_pyplot(network, output_dir):
 
     """
 
-    netid = network.graph['vpc']
+    labels = get_pyplot_label_dict(network)
+    netid = network.graph['vpc_name']
     fname = os.path.join(output_dir, netid)
     pos = nx.spring_layout(network, scale=10)
     prepare_nodes(network.node)
     nx.draw_networkx_nodes(network, pos=pos, with_lables=True, node_size=400, color='c', alpha=0.7, linewidths=None)
-    nx.draw_networkx_labels(network, pos=pos, font_size=9)
+    nx.draw_networkx_labels(network, labels=labels, pos=pos, font_size=9)
     nx.draw_networkx_edges(network, pos)
     plot.title(netid)
     plot.axis('off')
