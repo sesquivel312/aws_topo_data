@@ -265,6 +265,28 @@ def get_specific_aws_tags(aws_tags, tags_to_extract):
     return results
 
 
+def create_synthetic_object_name(name_components):
+    """
+    create a name from strings passed in the list param of the form <item1>/<item2>...
+
+    Used to create a name for an object when the name doesn't exist, is None/Null, etc., or the object doest have
+    a name attribute.
+
+    Example:
+            create_synthetic_object_name(['part-one', 'part-two']) returns the string
+
+            part-one/part-two
+
+    Args:
+        name_components (list): list of strings that will be joined into the resulting object name
+
+    Returns (string): synthesized name
+
+    """
+
+    return ':'.join(name_components)
+
+
 def get_aws_object_name(aws_tags):
     """
     the name associated with an AWS object from a list of tags from AWS
@@ -281,9 +303,9 @@ def get_aws_object_name(aws_tags):
     try:
         tag_dict = get_specific_aws_tags(aws_tags, ['Name', ])  # todo P3 add exception handling elsewhere
     except TypeError as e:
-        return 'NAME_NOT_EXIST'
+        return None
 
-    return tag_dict.get('Name', 'NAME_NOT_EXIST')
+    return tag_dict.get('Name', None)
 
 
 def dump_network_data(networks, f):
@@ -418,12 +440,13 @@ def get_subnets(networks, vpc):
 
         subnet_name = get_aws_object_name(subnet.tags)
 
-        if subnet_name == 'NAME_NOT_EXIST':
-            subnet_name = subnet.id
+        if not subnet_name:
+            subnet_name = create_synthetic_object_name([subnet.cidr_block, subnet.id,
+                                                        subnet.availability_zone, vpc.id])
 
         subnet_attribs = {'name': subnet_name, 'avail_zone': subnet.availability_zone, 'default': subnet.default_for_az,
                           'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
-                          'state': subnet.state, 'assoc_route_table': None}
+                          'state': subnet.state, 'assoc_route_table': None, 'tags': subnet.tags}
 
         # vpc_name = get_aws_object_name(vpc.tags)
         networks[vpc.id].add_node(subnet.id, **subnet_attribs)
@@ -510,21 +533,26 @@ def get_vpn_gw_data(networks, vpc, session):
 
     returned_data_dict = ec2_client.describe_vpn_gateways(Filters=filters)
 
-    vpn_gws = returned_data_dict['VpnGateways']  # this is a list
+    vpngws = returned_data_dict['VpnGateways']  # this is a list
 
-    for vpn_gw in vpn_gws:
+    for vpngw in vpngws:
 
         # get vpn gw's attached to this VPC and add them as nodes
         # want the availability zone but it's not always available
-        vpn_gw_name = get_aws_object_name(vpn_gw['Tags'])
-        vpn_gw_id = vpn_gw['VpnGatewayId']
+        vpngw_name = get_aws_object_name(vpngw['Tags'])
 
-        vpngw_attributes = {'name': vpn_gw_name, 'state': vpn_gw['State'], 'avail_zone': vpn_gw.get('AvailabilityZone'),
-                            'vpc_attachments': vpn_gw['VpcAttachments']}
+        vpngw_id = vpngw['VpnGatewayId']
 
-        network.add_node(vpn_gw_id, **vpngw_attributes)
+        if not vpngw_name:
+            vpngw_name = create_synthetic_object_name([vpngw_id, vpngw['AvailabilityZone']])
 
-        log_general.info('Added node {} to vpc: {}'.format(vpn_gw_id, vpc.id))
+
+        attrs = {'name': vpngw_name, 'state': vpngw['State'], 'avail_zone': vpngw.get('AvailabilityZone'),
+                 'vpc_attachments': vpngw['VpcAttachments'], 'tags': vpngw['Tags']}
+
+        network.add_node(vpngw_id, **attrs)
+
+        log_general.info('Added vpn-gateway {vpngw_id} to vpc: {vpc_id}'.format(vpngw_id=vpngw_id, vpc_id=vpc.id))
 
 
 def get_nat_gateways(network, vpc, session):
@@ -567,15 +595,18 @@ def get_nat_gateways(network, vpc, session):
 
 def get_inetgw_data(networks, vpc):
 
-    for gateway in vpc.internet_gateways.all():
+    for gw in vpc.internet_gateways.all():
 
-        gw_name = get_aws_object_name(gateway.tags)  # tag_dict['Name']
+        gw_name = get_aws_object_name(gw.tags)
 
-        attributes = {'name': gw_name}
+        if not gw_name:
+            gw_name = create_synthetic_object_name([gw.id, vpc.id])
 
-        networks[vpc.id].add_node(gateway.id, **attributes)
+        attributes = {'name': gw_name, 'tags': gw.tags}
 
-        log_general.info('Added internet-gateway node {} to vpc: {}'.format(gateway.id, vpc.id))
+        networks[vpc.id].add_node(gw.id, **attributes)
+
+        log_general.info('Added internet-gateway node {} to vpc: {}'.format(gw.id, vpc.id))
 
 
 def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
@@ -624,9 +655,12 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
 
             pcx_name = get_aws_object_name(peer.tags)
 
+            if not pcx_name:
+                pcx_name = create_synthetic_object_name([])
+
             # status is itself a dict containing a status code and status message
             pcx_attributes = {'name': pcx_name, 'requester_vpc_id': req_info['VpcId'],
-                              'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status}
+                              'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status, 'tags': peer.tags}
 
             network_object.add_node(peer.id, **pcx_attributes)
 
@@ -642,10 +676,13 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
             req_info = peer.requester_vpc_info  # for easier reading/typing
             acc_info = peer.accepter_vpc_info
 
-            tag_dict = get_specific_aws_tags(peer.tags, ['Name'])
+            pcx_name = get_aws_object_name(peer.tags)
 
-            pcx_attributes = {'name': tag_dict['Name'], 'requester_vpc_id': req_info['VpcId'],
-                              'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status}
+            if not pcx_name:
+                pcx_name = create_synthetic_object_name([])
+
+            pcx_attributes = {'name': pcx_name, 'requester_vpc_id': req_info['VpcId'],
+                              'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status, 'tags': peer.tags}
 
             network_object.add_node(peer.id, **pcx_attributes)
 
@@ -673,10 +710,16 @@ def add_route_table_node(network, vpc, route_table):
     # setup local variables
     route_table_name = get_aws_object_name(route_table.tags)
 
+    if not route_table_name:
+        route_table_name = create_synthetic_object_name([route_table.id, vpc.id])
+
     # add "router" to the graph (AWS route table)
-    network.add_node(route_table.id)
-    network.node[route_table.id]['name'] = route_table_name
-    log_general.info('Added node {} to vpc: {}'.format(route_table.id, vpc.id))
+    attrs = {'name': route_table_name, 'tags': route_table.tags}
+
+    network.add_node(route_table.id, **attrs)
+
+    # network.node[route_table.id]['name'] = route_table_name
+    log_general.info('Added route-table {rtb_id} to vpc: {vpc_id}'.format(rtb_id=route_table.id, vpc_id=vpc.id))
 
 
 def get_route_table_subnet_associations(network, vpc, route_table):
@@ -727,10 +770,9 @@ def get_route_table_subnet_associations(network, vpc, route_table):
 
             # update the assoc_route_table key for the subnet
             # NB: all the subnets have to be added to the network before this happens
-            log_general.info('Adding route table: {} to assoc_route_table '
-                             'field of subnet: {}'.format(route_table.id, subnet_id))
-
             network.node[subnet_id]['assoc_route_table'] = route_table.id
+
+            log_general.info('Added associated route table: {} to subnet: {}'.format(route_table.id, subnet_id))
 
         elif main_flag and not subnet_id:  # this is the main rtb for this vpc
             route_table_data_dict['main'] = True
@@ -1099,9 +1141,12 @@ def build_nets(networks, vpcs, session=None):
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
         vpc_name = get_aws_object_name(vpc.tags)
 
+        if not vpc_name:
+            vpc_name = create_synthetic_object_name([vpc.id])
+
         vpc_attribs = {'name': vpc_name, 'vpc_id': vpc.id, 'vpc_name': vpc_name, 'cidr': vpc.cidr_block,
                        'isdefault': vpc.is_default, 'state': vpc.state, 'main_route_table': None,
-                       'nacls': {}}  # collect node attributes
+                       'dhcp_opt_id':vpc.dhcp_options_id, 'nacls': {}, 'tags': vpc.tags}  # collect node attributes
 
         network = networks[vpc.id] = nx.Graph(**vpc_attribs)
 
@@ -1410,8 +1455,12 @@ def get_nacls(networks, vpcs):
         for acl in vpc.network_acls.all():
 
             acl_name = get_aws_object_name(acl.tags)
+
+            if not acl_name:
+                acl_name = create_synthetic_object_name([acl.id, vpc.id])
+
             acl_data[acl.id] = {'name': acl_name, 'default': acl.is_default, 'assoc_subnets': [],
-                                'ingress_entries': [], 'egress_entries': []}
+                                'ingress_entries': [], 'egress_entries': [], 'tags': acl.tags}
 
             log_general.info('Begin adding NACL {} ({})'.format(acl.id, acl_name))
 

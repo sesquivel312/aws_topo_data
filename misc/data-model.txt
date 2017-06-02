@@ -49,6 +49,7 @@ networkx.Graph:
     isdefault: <aws flag indicating this is the default vpc in the account>
     state: <string indicating the state of the aws VPC> << not sure of possible values
     main_route_table: <rtbid>
+    dhcp_opt_id (string): id of dhcp options set assocaited w/this VPC
     nacls (dict):
       id (dict):
         name (string): taken from NetworkAcl.tags (or NOT EXIST if there isn't a Name tag)
@@ -60,12 +61,19 @@ networkx.Graph:
           protocol (string): name of protocol, e.g. tcp, udp, icmp, all
           src_dst (list): source or dest range in CIDR notation, depending on direction of rule, the list will (?) have only one entry, it's a list to be consistent with src_dst in rules originating from sec-groups - i.e. functions that process rules expect this to be a list
           ports (tuple): 2tuple of the form (start, end), where the port range is start-end (end=start if one port)
+        tags (list): of dicts of AWS tags
+    tags (list): of dicts
+        {
+         Key (string): key name,
+         Value (string): value associated w/key
+         }
+
 
 
   node (dict): contains graph nodes and associated meta data
 
     <route_table_id> (string: 'rtb-...')  << this is a route table - which I'm adding as a node in the network - i.e. a router
-      name (string): name of the route route table from tags, or None
+      name (string): name of the route route table from tags | rtb-id:vpc-id
       main: None|<vpc-id>  << uuseful for finding subnets that are implicitly associated w/the main route table
       assoc_subnets: [snid1, ..., snidn]  (may be empty)
       routes: [<route_data_dict>, ...]
@@ -95,34 +103,38 @@ networkx.Graph:
           ports (tuple): 2-tuple representing the destination port range (dest for both in and out acl's).  a single port is represented by a 2tuple with the same value in both slots
         }
       assoc_route_table: None | <rtb-id> << route table ID of the route table to which this subnet is associated  NB: all subnets are associated with one and only one rtb, but those assocaited w/the "main" rtb in a given vpc are not listed in rtb.associations - i.e. you have to find these by subtracting the set of subnets assocaited with route tables from the list of all subnets :(
+      tags (list): of dicts of AWS tags
 
     <vpngatewayid> (dict):
-      name (string): name of this gateway (from tags with Key = Name)
+      name (string): name of this gateway (from tags with Key = Name) or vpngw_id:avail_zone
       state (string): 'pending'|'available'|'deleting'|'deleted'
       avail_zone (string): AWS AZ in which this vgw resides (AvailabilityZone)
       vpc_attachments (dict): (VpcAttachments)
         vpc_id (string): id of an "attached" vpc (VpcId)
         state (string): attaching|attached|detaching|detached (State)
+      tags (list): of dicts of AWS tags
 
     <natgwid>: (dict)
-      vpc_id (string): id of the vpc in which this natgw is contained (bit redundant but helps w/lookups)
+      vpc_id (string): id of the vpc in which this natgw is contained (bit redundant but helps w:lookups)
       subnet_id (string): id of subnet to which this natgw is attached
       state: pending| failed|available|deleting|deleted
-      name (string): = ngw-id/subnet-id/vpc-id
+      name (string): = ngw-id:subnet-id:vpc-id
 
     <internet_gw_id>: (string)
         name (string): name, from tag 'Name'
+        tags (list): of dicts of AWS tags
 
-    <peer_conn_requester/accepter_id> (string): (dict)
-      name (string): name of peer
+    <peer-connection-id> (string): (dict)
+      name (string): name of peer or vpce_id:vpc_id
       accepter_vpc_id (string): vpc ID of the accepting VPC
       requester_vpc_id (string): vpc ID of the requesting VPC
       status: (dict)
         Code (string): status code - e.g. peering_connection.status['Code']: pending-acceptance | failed | expired | provisioning | active | deleted | rejected 
-        Message (string): related message, e.g. pcx.status['Message'] 
+        Message (string): related message, e.g. pcx.status['Message']
+      tags (list): of dicts of AWS tags
 
     <vpce (endpoint) ID vpce_xxxx> (dict):
-        name (string): service-name/vpce-id/vpc-id
+        name (string): service-name:vpce-id:vpc-id
         service_name (string): AWS service to which this VPCE connects (only S3 for now)
         state (string): Pending|Available|Deleting|Deleted
         route_table_ids (list):  list of route table ID's that, I assume, are using this as a NH for one or more routes  << this is possibly not needed for our puroposes here but might as well take it?
