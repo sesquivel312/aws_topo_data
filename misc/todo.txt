@@ -1,3 +1,4 @@
+* factor rule check logging out of the graph rendering function, also verify checks are happening correctly
 * fix vpn edge handling - may only be missing b/c VPN is down
 * handling SG's and other (?) things in the src/dest spot of a rule
 * fix logging to handle multiple output thresholds (e.g. warning, info, etc.)
