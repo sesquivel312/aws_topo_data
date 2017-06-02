@@ -464,8 +464,13 @@ def get_vpc_endpoint_data(network, vpc, aws_session):
     ep_list = ep_data['VpcEndpoints']  # only need the list todo P2 address paging
 
     for ep in ep_list:
-        ep_attribs = {'service_name': ep['ServiceName'], 'state': ep['State'], 'route_table_ids': ep['RouteTableIds']}
+
+        ep_name = '/'.join([ep['ServiceName'], ep['VpcEndpointId'], ep['VpcId']])
+
+        ep_attribs = {'name': ep_name, 'service_name': ep['ServiceName'], 'state': ep['State'], 'route_table_ids': ep['RouteTableIds']}
+
         network.add_node(ep['VpcEndpointId'], attr_dict=ep_attribs)
+
         log_general.info('Added node {} to vpc: {}'.format(ep, vpc.id))
 
 
@@ -545,14 +550,19 @@ def get_nat_gateways(network, vpc, session):
     natgw_list = natgw_dict['NatGateways']  # list of dicts containing attributes of a given nat gateway
 
     # loop over ngw list, adding each as a node, along with desired metadata
-    for gateway in natgw_list:
+    for ngw in natgw_list:
 
-        attribs = {'vpc_id': gateway['VpcId'], 'subnet_id': gateway['SubnetId'], 'state': gateway['State']}
+        ngw_id = ngw['NatGatewayId']
+        sn_id = ngw['SubnetId']
 
-        network.add_node(gateway['NatGatewayId'], **attribs)
+        # ngw doesn't have tags or a name attribute so synthesising one
+        attribs = {'name': '/'.join([ngw_id, sn_id, ngw['VpcId']]), 'vpc_id': ngw['VpcId'],
+                   'subnet_id': sn_id, 'state': ngw['State'], 'addresses': ngw['NatGatewayAddresses']}
+
+        network.add_node(ngw['NatGatewayId'], **attribs)
 
         msg = 'Added nat gateway node {ngw_id}/{sn_id} to vpc: {vpc_id}'
-        log_general.info(msg.format(ngw_id=gateway['NatGatewayId'],  sn_id=attribs['subnet_id'], vpc_id=vpc.id))
+        log_general.info(msg.format(ngw_id=ngw['NatGatewayId'],  sn_id=attribs['subnet_id'], vpc_id=vpc.id))
 
 
 def get_inetgw_data(networks, vpc):
@@ -612,10 +622,10 @@ def get_peering_conn_data(network_object, vpc):  # get vpc peering connections
             req_info = peer.requester_vpc_info  # for easier reading/typing
             acc_info = peer.accepter_vpc_info
 
-            tag_dict = get_specific_aws_tags(peer.tags, ['Name'])
+            pcx_name = get_aws_object_name(peer.tags)
 
             # status is itself a dict containing a status code and status message
-            pcx_attributes = {'name': tag_dict['Name'], 'requester_vpc_id': req_info['VpcId'],
+            pcx_attributes = {'name': pcx_name, 'requester_vpc_id': req_info['VpcId'],
                               'accepter_vpc_id': acc_info['VpcId'], 'status': peer.status}
 
             network_object.add_node(peer.id, **pcx_attributes)

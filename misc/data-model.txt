@@ -104,14 +104,11 @@ networkx.Graph:
         vpc_id (string): id of an "attached" vpc (VpcId)
         state (string): attaching|attached|detaching|detached (State)
 
-
-
     <natgwid>: (dict)
-      state: pending| failed|available|deleting|deleted
       vpc_id (string): id of the vpc in which this natgw is contained (bit redundant but helps w/lookups)
       subnet_id (string): id of subnet to which this natgw is attached
-
-      
+      state: pending| failed|available|deleting|deleted
+      name (string): = ngw-id/subnet-id/vpc-id
 
     <internet_gw_id>: (string)
         name (string): name, from tag 'Name'
@@ -125,11 +122,11 @@ networkx.Graph:
         Message (string): related message, e.g. pcx.status['Message'] 
 
     <vpce (endpoint) ID vpce_xxxx> (dict):
-      # add vpcid - would be redundant but easire to use when iterating over vpce's
-      service_name (string): AWS service to which this VPCE connects (only S3 for now)
-      state (string): one of: Pending|Available|Deleting|Deleted
-      route_table_ids (list):  list of route table ID's that, I assume, are using this as a NH for one or more routes  << this is possibly not needed for our puroposes here but might as well take it?
-        rtb_id (string)
+        name (string): service-name/vpce-id/vpc-id
+        service_name (string): AWS service to which this VPCE connects (only S3 for now)
+        state (string): Pending|Available|Deleting|Deleted
+        route_table_ids (list):  list of route table ID's that, I assume, are using this as a NH for one or more routes  << this is possibly not needed for our puroposes here but might as well take it?
+            rtb_id (string):
 
 
   edge: (dict) (also known as adj)
