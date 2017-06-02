@@ -52,10 +52,10 @@ import netaddr
 import networkx as nx
 import matplotlib.pyplot as plot
 
-# todo P1 adjust  NACLs to use 'inacl', 'outacl' rather than egress/ingress - to make things uniform
 # todo P1 identify that ELB's exist
 # todo P1 identify that WAF/Shield is configured
 # todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
+# todo P2 adjust  NACLs to use 'inacl', 'outacl' rather than egress/ingress - to make things uniform
 # todo P2 run port checks on ELB listener ports
 # todo P2 when ELB listener = 443, verify ciphers are configured at all AND check for weak ciphers (2 diff checks)
 # todo P2 add support for Direct Connect (similar to VPN)
@@ -72,12 +72,12 @@ import matplotlib.pyplot as plot
 # todo P3 generalize this away from AWS specifically
 # todo P3 logging - factor out logging in each function to a utility function so calls w/in functions are "the same"?
 # todo P3 include which risky ports were identified in a port range
-# todo add geo and/or black/white-list IP range/address checks - i.e. check lists supplied by EW or 3rd parties
-# todo IAM audit
-# todo Terraform Audit, this is mostly a separate function, but could be combined to "Diff" the to-be and as-is configs
-# todo Route 53 audit, minimum is keep record of domains configured and diff from previous run - research other checks
-# todo add alert logic to topo and rules checks - will require research
-# todo add mod-security to topo and rule checks - will require research
+# todo P4 add geo and/or black/white-list IP range/address checks - i.e. check lists supplied by EW or 3rd parties
+# todo P4 IAM audit
+# todo P4 Terraform Audit, this is mostly a separate function, but could be combined to "Diff"  to-be and as-is configs
+# todo P4 Route 53 audit, minimum keep record of domains configured, diff from previous run - research other checks
+# todo P4 add alert logic to topo and rules checks - will require research
+# todo P4 add mod-security to topo and rule checks - will require research
 
 
 # get the loggers
@@ -158,16 +158,19 @@ def get_args():
 
     """
     # todo P3 verify functions producing output place files into the output directory
+    # todo P3 add description to argparser, determine if it should be a param to get_args()
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--region', help='AWS REGION to use, defaults to us-west-2', default='us-west-2')
-    parser.add_argument('--graph-format', help='Graph output format; no graph output produced if not specified, options'
-                                               ' include:\nprint, gephi, pyplot\nprint prints out the network info to'
-                                               'the terminal')
+    parser.add_argument('--graph-format', nargs='+',
+                        help='Space delimited list of one or more output formats; no graph output produced if '
+                             'not specified.  If option is supplied at least one format must be provided.  '
+                             'Possibilities are: \nprint, gephi, pyplot, yaml\nprint prints out the network info to '
+                             'the terminal')
     parser.add_argument('--output-dir', help='Path output is written to, current dir if not specified')
-    parser.add_argument('--export-network-to-yaml', help='flag indicating network data should be exported to a YAML '
-                                                         'file in the directory indicated by --output-dir (or current '
-                                                         'directory if not specified', action='store_true')
+    # parser.add_argument('--export-network-to-yaml', help='flag indicating network data should be exported to a YAML '
+    #                                                      'file in the directory indicated by --output-dir (or current '
+    #                                                      'directory if not specified', action='store_true')
     parser.add_argument('--export-rules', help='Path to file in which to place security rules.  Rules are not exported'
                                                'by default')
     parser.add_argument('--log-file', help='Name of file in which to place log entries.  If --output-dir is specified '
@@ -1086,8 +1089,9 @@ def build_nets(networks, vpcs, session=None):
         # vpc object info @: https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
         vpc_name = get_aws_object_name(vpc.tags)
 
-        vpc_attribs = {'vpc_id': vpc.id, 'vpc_name': vpc_name, 'cidr': vpc.cidr_block, 'isdefault': vpc.is_default,
-                       'state': vpc.state, 'main_route_table': None, 'nacls': {}}  # collect node attributes
+        vpc_attribs = {'name': vpc_name, 'vpc_id': vpc.id, 'vpc_name': vpc_name, 'cidr': vpc.cidr_block,
+                       'isdefault': vpc.is_default, 'state': vpc.state, 'main_route_table': None,
+                       'nacls': {}}  # collect node attributes
 
         network = networks[vpc.id] = nx.Graph(**vpc_attribs)
 
@@ -1471,17 +1475,23 @@ def get_pyplot_label_dict(network):
     return map
 
 
-def render_gexf(networks, out_dir_string):
+def render_gexf(network, out_dir):
     """
     write out gephi file for each network in a dict of networks to a file
-    :param networks: dict of networkx graphs
-    :param out_dir_string: string representing the output directory path
-    :return:
-    """
-    # todo fix output path with os.path methods
+    
+    :param network: dict of networkx graphs
+    :param out_dir: string representing the output directory path
+    Args:
+        network (networkx.Graph): graph object containing topology data for some aws vpc
+        out_dir (string): path to output .gexf file 
 
-    for net_id, net_graph in networks.items():
-        nx.write_gexf(net_graph, out_dir_string + net_id + '.gexf', prettyprint=True)
+    Returns: None
+
+    """
+
+    out_file = os.path.join(out_dir, network.name + '.gexf')
+
+    nx.write_gexf(network, out_file, prettyprint=True)
 
 
 def render_pyplot(net, output_dir, node_cmap=None):
@@ -1603,15 +1613,31 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
     f.close()
 
 
-def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False, csv_file=None):
-    if graph_format:  # don't lower() if None (likely b/c format option not specified)
-        graph_format = graph_format.lower()
+def render_nets(networks, format_list, output_dir=None, csv_file=None):
+    """
+    Export topology/graph data to formats indicated by CLI options
+    
+    Args:
+        networks (dict):  networkx.Graph objects containing network topology data, one per VPC
+        format_list (list): list of formats to export, can be a list of length one 
+        output_dir (string): directory in which to place exported data
+        csv_file: 
 
-    if not output_dir:  # use current directory if no output dir specified
-        output_dir = os.path.curdir
+    Returns:
 
-    if not graph_format and yaml_export:  # no format specified, but yaml output requested (--export-to-yaml)
-        log_general.info('Render to YAML only')
+    """
+    # todo P3 YAML export should be handled same as all other exports - i.e. no separate CLI option, etc.
+
+    # todo P2 determine if this is handled by the output dir logic, if so, remove separate handling here
+    # if not output_dir:  # use current directory if no output dir specified
+    #     output_dir = os.path.curdir
+
+    if not isinstance(format_list, list):
+        log_general.warn('render_nets() called without a list of export formats')
+        return
+
+    if 'yaml' in format_list:
+
         for net_name, network in networks.iteritems():  # todo add code to actually export to yaml
             print net_name, ': '
             pp.pprint(network.graph)
@@ -1623,49 +1649,44 @@ def render_nets(networks, graph_format=None, output_dir=None, yaml_export=False,
                 print '\n'
             f.close()
 
-    elif graph_format == 'print':
-        if yaml_export:  # if the --export-to-yaml cli arg was included, save each nw to a yaml file
-            for network in networks.values():
-                pp.pprint(network)
-                # add yaml export code
-        else:  # --export-to-yaml was not included
-            for network in networks.values():
-                print network.nodes()
+        log_general.info('Rendered to YAML file {}'.format(net_name))
 
-    elif graph_format == 'gephi':
-        if yaml_export:
-            log_general.info('Render to Gephi and YAML')
-            for network in networks.values():
-                render_gexf(network, output_dir)
-                # add yaml export code
-        else:
-            log_general.info('Render to Gephi only')
-            for network in networks.values():
-                render_gexf(network, output_dir)
+    if 'print' in format_list:
 
-    elif graph_format == 'pyplot':
-        if yaml_export:
-            log_general.info('Rendering to PyPlot and YAML')
-            for network in networks.values():
-                render_pyplot(network, output_dir)
-                # add yaml export code
-        else:
-            log_general.info('Rendering to PyPlot')
-            for network in networks.values():
-                render_pyplot(network, output_dir)
+        for network in networks.values():
+            pp.pprint(network.node)
 
-    elif graph_format is not None:
-        log_general.warning('Render - unknown format requested: {}'.format(graph_format))
+        log_general.info('Rendered to stdout')
 
+    if 'gephi' in format_list:
+
+        log_general.warn('Export to gephi format (gexf) requested - not currnetly supported')
+        # todo P2 need to flatten out node/edge "attributes" that aren't strings before rendering to gexf
+
+        # would look something like....
+        #
+        # for network in networks.values():
+        #     prepared_network = prepare_network(network)  << this would find any "complex" attribs and flatten them
+        #     render_gexf(network, output_dir)
+
+        pass
+
+    if 'pyplot' in format_list:
+
+        for network in networks.values():
+
+            render_pyplot(network, output_dir)
+
+    # todo P3 refactor to own function? it's not related to topology
     if csv_file:  # should be None if option not specified, otherwise it's a filename with opt. path
 
         # todo if keeping this feature, enhance it to handle "all" cases of path/filename that may be handed to it
         if os.path.split(csv_file)[0] == '':  # got file name only if path part is empty
             csv_file = os.path.join(output_dir, csv_file)  # save with other output files
 
-        log_general.info('Render export rules to CSV file {}'.format(csv_file))
-
         export_sgrules_to_csv(networks, outfile=csv_file)
+
+        log_general.info('Rendered rules to CSV file {}'.format(csv_file))
 
 
 def create_reverse_dict(dict):

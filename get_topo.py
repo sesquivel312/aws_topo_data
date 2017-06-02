@@ -17,6 +17,7 @@ import logging
 
 import pdb
 import pprint as pp
+import networkx as nx
 
 import boto3
 
@@ -102,6 +103,6 @@ net_dump_file = os.path.join(args.output_dir, 'net-dump.out')
 with open(net_dump_file, 'w') as f:
     lib.dump_network_data(networks, f)
 
-lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, yaml_export=args.export_network_to_yaml,
-                csv_file=args.export_rules)
+if args.graph_format:
+    lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, csv_file=args.export_rules)
 
