@@ -604,6 +604,7 @@ def get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, netwo
 
     """
     # todo P2 fix create time - should be stored as a string, not a repr string
+    # todo P3 determine if this and get_secgrp_data can be combined, combine if yes
 
     root_create_time = get_inst_root_vol_creation_time(inst)
 
