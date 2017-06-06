@@ -398,6 +398,17 @@ def get_instance_inventory(vpcs, outfile, aws_session):
     
     Assumptions:
         * EC2 VPC only - doesn't support EC2 Classic (i.e. all instances must be in a VPC)
+        
+    Notes:
+        Data not available via AWS API
+            
+            Instance creation time and creating user are not available, approximate by ...
+        
+                create time ~ time when root volume was created
+                create user ~ ssh key ID applied at creation
+            
+            SSH key ID as user only works if we're using an SSH key pair per IAM user
+            
     
     Args:
         aws_session (boto3.Session): used to create an STS client in order to obtain the AWS account ID
@@ -415,12 +426,13 @@ def get_instance_inventory(vpcs, outfile, aws_session):
     with open(outfile, 'w') as f:
 
         csvwriter = csv.writer(f, lineterminator='\n')
-        csvwriter.writerow(['acct', 'inst_id', 'priv_ipv4', 'priv_host', 'platform', 'state', 'approx_create_time'])
+        csvwriter.writerow(['acct', 'ssh_key_name', 'inst_id', 'priv_ipv4', 'priv_host', 'platform', 'state', 'approx_create_time'])
 
         for vpc in vpcs:
 
             for inst in vpc.instances.all():
 
+                ssh_key_name = inst.key_name
                 id = inst.id
                 priv_ipv4 = inst.private_ip_address
                 priv_hostname = inst.private_dns_name
@@ -440,7 +452,8 @@ def get_instance_inventory(vpcs, outfile, aws_session):
 
                             root_create_time = vol.create_time
 
-                csvwriter.writerow([acct_id, id, priv_ipv4, priv_hostname, platform, state, root_create_time])
+                csvwriter.writerow([acct_id, ssh_key_name, id, priv_ipv4,
+                                    priv_hostname, platform, state, root_create_time])
 
 
 def get_node_type(node_name):
