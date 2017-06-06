@@ -72,6 +72,8 @@ networkx.Graph:
 
   node (dict): contains graph nodes and associated meta data
 
+    <instance-id> (string): dict containing instances for this VPC  << only collected if the inventory_instances CLI agrument is set
+
     <route_table_id> (string: 'rtb-...')  << this is a route table - which I'm adding as a node in the network - i.e. a router
       name (string): name of the route route table from tags | rtb-id:vpc-id
       main: None|<vpc-id>  << uuseful for finding subnets that are implicitly associated w/the main route table

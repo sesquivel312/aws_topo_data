@@ -87,6 +87,11 @@ vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 
 log_general.info('Successfully gathered VPCs and security-groups')
 
+if args.instance_inventory_only:
+    outfile = os.path.join(args.output_dir, 'instances.csv')
+    lib.get_instance_inventory(vpcs, outfile, aws_session)
+    sys.exit()
+
 networks = {}
 
 # collect all the topo and related meta data

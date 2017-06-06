@@ -153,6 +153,9 @@ def load_yaml_file(file_name):
 def get_args():
     """
     Get command line arguments
+    
+    Notes:
+        --keep-inventory
 
     Returns (None):
 
@@ -167,21 +170,51 @@ def get_args():
                              'not specified.  If option is supplied at least one format must be provided.  '
                              'Possibilities are: \nprint, gephi, pyplot, yaml\nprint prints out the network info to '
                              'the terminal')
+
     parser.add_argument('--output-dir', help='Path output is written to, current dir if not specified')
-    # parser.add_argument('--export-network-to-yaml', help='flag indicating network data should be exported to a YAML '
-    #                                                      'file in the directory indicated by --output-dir (or current '
-    #                                                      'directory if not specified', action='store_true')
+
     parser.add_argument('--export-rules', help='Path to file in which to place security rules.  Rules are not exported'
                                                'by default')
-    parser.add_argument('--log-file', help='Name of file in which to place log entries.  If --output-dir is specified '
-                                           'then the log file will be created in the directory specified.  If not the'
-                                           'log file will be created in the current working directory', default=None)
-    parser.add_argument('--rule-check-report', help='Filename to use for rule check results.  By default '
+
+    parser.add_argument('--log-file', default=None, help='Name of file in which to place log entries.  If --output-dir '
+                                                         'is specified then the log file will be created in the '
+                                                         'directory specified.  If not the log file will be created in '
+                                                         'the current working directory')
+
+    parser.add_argument('--rule-check-report',
+                        default=None,
+                        help='Filename to use for rule check results.  By default '
                                                     'check results will be placed in the general log file.  If the'
                                                     '--outupt-dir option is specified the rule check report file will '
-                                                    'be placed in the directory supplied to that option', default=None)
+                                                    'be placed in the directory supplied to that option')
 
-    return parser.parse_args()
+    parser.add_argument('--keep-instance-inventory',
+                        action='store_true',
+                        help='Flag that when set will cause instance inventory '
+                                                                     'data to be recorded.  Inventory data is not '
+                                                                     'recorded by default.')
+
+    parser.add_argument('--instance-inventory-only',
+                        help='Only collect inventory, do not collect any other topology '
+                                                          'data (i.e. subnets, route-tables), etc.',
+                        action='store_true')
+
+    args = parser.parse_args()
+
+    # check for disallowed CLI combinations not supported by argparse
+    inventory_mutex_args = ['graph_format', 'rule_check_report']  # cli args not compatible w/inventory only
+
+    if not args.instance_inventory_only:  # inst. inv. only flag not provided - "don't care", continue
+        print 'only not specified, dont care'
+        return args
+
+    # no mutex args specified
+    elif args.instance_inventory_only and not any([v for a, v in vars(args).items() if a in inventory_mutex_args]):
+        return args
+
+    else:  # mutex args specified
+        sys.exit('\n\n***ERROR: --instance-inventory-only is mutually '
+                 'exclusive with {}\n\nExiting...\n'.format(inventory_mutex_args))
 
 
 def get_aws_api_credentials():
@@ -359,6 +392,57 @@ def get_vpcs_and_secgroups(session=None):
     return vpcs, sec_groups
 
 
+def get_instance_inventory(vpcs, outfile, aws_session):
+    """
+    create an inventory of instances and output to CSV file
+    
+    Assumptions:
+        * EC2 VPC only - doesn't support EC2 Classic (i.e. all instances must be in a VPC)
+    
+    Args:
+        aws_session (boto3.Session): used to create an STS client in order to obtain the AWS account ID
+        vpcs (boto3.Collection): iterable containing all VPCs in an AWS account
+        outfile (string): path to output CSV file 
+
+    Returns: None
+
+    """
+
+    sts = aws_session.client('sts')
+
+    acct_id = sts.get_caller_identity()['Account']
+
+    with open(outfile, 'w') as f:
+
+        csvwriter = csv.writer(f, lineterminator='\n')
+        csvwriter.writerow(['acct', 'inst_id', 'priv_ipv4', 'priv_host', 'platform', 'state', 'approx_create_time'])
+
+        for vpc in vpcs:
+
+            for inst in vpc.instances.all():
+
+                id = inst.id
+                priv_ipv4 = inst.private_ip_address
+                priv_hostname = inst.private_dns_name
+                platform = inst.platform # 'Windows' or None
+                state = inst.state['Name']  # pending|running|shutting-down|terminated|stopping|stopped
+                tags = inst.tags  # list of AWS tags (i.e. list of dicts), currently not used
+
+                root_dev = inst.root_device_name
+
+                volumes = inst.volumes.all()
+
+                for vol in volumes:
+
+                    for attach in vol.attachments:
+
+                        if attach['Device'] == root_dev:
+
+                            root_create_time = vol.create_time
+
+                csvwriter.writerow([acct_id, id, priv_ipv4, priv_hostname, platform, state, root_create_time])
+
+
 def get_node_type(node_name):
     """
     helper function returning a string indicating the type of a node based on the node's name/id
@@ -417,7 +501,7 @@ def create_gateway_name(route):
     return ':'.join(name_components)
 
 
-def get_subnets(networks, vpc):
+def get_subnets(networks, vpc, inventory_instances):
     """
     enumerate subnets in a given VPC, subsequently extract security groups (per subnet) and install in a dict of
     networkx network objects
@@ -429,6 +513,7 @@ def get_subnets(networks, vpc):
     assoc_route_table key is only created here, it's final value will be udpated by the functions that add route-tables
 
     Args:
+        inventory_instances (bool):  Determines if instance inventory is kept 
         networks (dict of networkx.Graph): dict of Graphs to populate with data from AWS API
         vpc (boto3.Vpc): Vpc object used to get the data from AWS that will be inserted into the Graph object
 
@@ -1117,7 +1202,7 @@ def add_pcx_edges(network, vpc):
                     log_general.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
-def build_nets(networks, vpcs, session=None):
+def build_nets(networks, vpcs, session=None, inventory_instances=False):
     """
     Gather the network topology data used later for analysis and visualization
 
@@ -1128,6 +1213,7 @@ def build_nets(networks, vpcs, session=None):
     by code that analyzes the topology and, optionally, renders it for visualization by humans.
 
     Args:
+        inventory_instances (bool): Determines if instance inventory is recorded 
         networks (dict(networkx.Graph)):  each Graph holds the topo data for a given AWS VPC
         vpcs (boto3.Collection):  iterator of boto3.Vpc objects - from which most/all of the topo data comes
         session (boto3.Session): session object initialized with api keys and region information
@@ -1153,7 +1239,7 @@ def build_nets(networks, vpcs, session=None):
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
         # sec_groups = get_subnet_data(networks, vpc)
-        get_subnets(networks, vpc)
+        get_subnets(networks, vpc, inventory_instances)
 
         get_vpc_endpoint_data(network, vpc, session)
 
