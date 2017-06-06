@@ -72,17 +72,17 @@ networkx.Graph:
 
   node (dict): contains graph nodes and associated meta data
 
-    instances (dict):
-        <instance-id> (string): dict containing instances for this VPC  << only collected if the inventory_instances CLI agrument is set
-            account_id (string): aws account #
-            ssh_key_name (string): name of SSH key pair associated with instance when it was created, may be None
-            priv_ipv4 (string):
-            priv_hostname (string):
-            platform (string): 'Windows'|None
-            state (string): pending|running|shutting-down|terminated|stopping|stopped
-            tags (list): list of AWS tags, i.e. list of dicts
-            root_dev (string): "name" of root partition device - i.e. /dev/sda1
-            root_create_time (string): time root device was created - used to estimate instance creation time
+    <instance-id> (string): dict containing instances for this VPC  << only collected if the inventory_instances CLI agrument is set
+        account_id (string): aws account #
+        ssh_key_name (string): name of SSH key pair associated with instance when it was created, may be None
+        priv_ipv4 (string):
+        priv_hostname (string):
+        platform (string): 'Windows'|None
+        state (string): pending|running|shutting-down|terminated|stopping|stopped
+        tags (list): list of AWS tags, i.e. list of dicts
+        root_dev (string): "name" of root partition device - i.e. /dev/sda1
+        root_create_time (string): time root device was created - used to estimate instance creation time
+        poss_nat_inst (bool): T> check enabled, F> check disabled
 
 
 

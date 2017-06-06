@@ -407,6 +407,12 @@ def get_instance_inventory(vpcs, outfile, aws_session):
             
             SSH key ID as user only works if we're using an SSH key pair per IAM user
             
+        Possible NAT instance (poss_nat_instance)
+            
+            For an instance to provide NAT services it must have the source_dest_check disabled.  The value
+            of this attribute is collected here and used to indicate if an instance is capable of providing NAT
+            service
+            
     
     Args:
         aws_session (boto3.Session): used to create an STS client in order to obtain the AWS account ID
@@ -424,19 +430,22 @@ def get_instance_inventory(vpcs, outfile, aws_session):
     with open(outfile, 'w') as f:
 
         csvwriter = csv.writer(f, lineterminator='\n')
-        csvwriter.writerow(['acct', 'ssh_key_name', 'inst_id', 'priv_ipv4', 'priv_host', 'platform', 'state', 'approx_create_time'])
+        csvwriter.writerow(['inst_id', 'acct', 'ssh_key_name', 'priv_ipv4', 'priv_host',
+                            'poss_nat_inst', 'platform', 'state', 'approx_create_time', ])
 
         for vpc in vpcs:
 
             for inst in vpc.instances.all():
 
-                ssh_key_name = inst.key_name
                 id = inst.id
+                ssh_key_name = inst.key_name
                 priv_ipv4 = inst.private_ip_address
                 priv_hostname = inst.private_dns_name
+                poss_nat_inst = not inst.source_dest_check
                 platform = inst.platform # 'Windows' or None
                 state = inst.state['Name']  # pending|running|shutting-down|terminated|stopping|stopped
                 tags = inst.tags  # list of AWS tags (i.e. list of dicts), currently not used
+
 
                 root_dev = inst.root_device_name
 
@@ -450,8 +459,9 @@ def get_instance_inventory(vpcs, outfile, aws_session):
 
                             root_create_time = vol.create_time
 
-                csvwriter.writerow([acct_id, ssh_key_name, id, priv_ipv4,
-                                    priv_hostname, platform, state, root_create_time])
+                csvwriter.writerow([id, acct_id, ssh_key_name, priv_ipv4,
+                                    priv_hostname, poss_nat_inst, platform,
+                                    state, root_create_time])
 
 
 def get_node_type(node_name):
@@ -512,6 +522,147 @@ def create_gateway_name(route):
     return ':'.join(name_components)
 
 
+def get_subnet_data(subnet, vpc, network):
+    """
+    add a subnet node to network along with associated data
+    
+    Args:
+        vpc (boto3.Vpc): VPC object from which topology and other data is collected 
+        subnet (boto3.Subnet): subnet to add as a node and from which to collect data  
+        network (networkx.Graph): represents an AWS VPC to which the subnet and it's data will be added as a node 
+
+    Returns: None
+
+    """
+
+    subnet_name = get_aws_object_name(subnet.tags)
+
+    if not subnet_name:
+        subnet_name = create_synthetic_object_name([subnet.cidr_block, subnet.id,
+                                                    subnet.availability_zone, vpc.id])
+
+    attribs = {'name': subnet_name, 'avail_zone': subnet.availability_zone,
+               'default': subnet.default_for_az, 'cidr': subnet.cidr_block,
+               'assign_publics': subnet.map_public_ip_on_launch,
+               'state': subnet.state, 'assoc_route_table': None, 'tags': subnet.tags}
+
+    network.add_node(subnet.id, **attribs)
+
+    log_general.info('Added subnet node {} to vpc {}'.format(subnet.id, vpc.id))
+
+
+def get_inst_root_vol_creation_time(instance):
+    """
+    return time the root volume associated with the given instance was created
+    
+    currently the AWS API doesn't provide instance creation time directly.  Root volume creation time is useful as
+    an approximation for instance creation time.
+    
+    Args:
+        instance (boto3.Instance): 
+
+    Returns (string): root volume creation time
+
+    """
+
+    volumes = instance.volumes.all()
+    root_dev = instance.root_device_name
+
+    for vol in volumes:
+
+        for attach in vol.attachments:
+
+            if attach['Device'] == root_dev:
+
+                return vol.create_time
+
+    return 'Root device creation time not found'
+
+
+def get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, network):
+    """
+    gather data associated with the given instance and add it to the data model
+    
+    Notes:
+        poss_nat_inst:
+            The source_dest_check instance attribute must be false in order for an instance to provide
+            NAT services.  This field records the inverse of the attribute to indicate whether or not the
+            instance could provide NAT services.
+            
+            NB from my read of the docs that the source_dest_check attribute is false does not imply the instance
+            is providing NAT, only that it could, hence the data field name of 'poss_nat_inst' (i.e. possible)
+        
+    Args:
+        secgrp_set (set): set of security groups 
+        acct_id (string):  AWS account ID (number) 
+        subnet (boto3.Subnet): object containing subnet data used to populate data model 
+        vpc (boto3.Vpc): VPC instance from which topology is collected
+        inst (boto3.Instance): an instance object from which the data is collected 
+        network (networkx.Graph): object in which collected data will be stored
+
+    Returns: None 
+
+    """
+    # todo P2 fix create time - should be stored as a string, not a repr string
+
+    root_create_time = get_inst_root_vol_creation_time(inst)
+
+    attribs = {'account_id': acct_id, 'ssh_key_name': inst.key_name,
+               'priv_ipv4': inst.private_ip_address, 'priv_hostname': inst.private_dns_name,
+               'platform': inst.platform, 'state': inst.state['Name'], 'tags': inst.tags,
+               'root_dev': inst.root_device_name, 'root_create_time': root_create_time,
+               'poss_nat_inst': not inst.source_dest_check}
+
+    network.add_node(inst.id, **attribs)
+
+    log_general.info('Added instance {} in subnet {} in vpc {}'.format(inst.id, subnet.id, vpc.id))
+
+    for sg in inst.security_groups:
+
+        secgrp_set.add(sg['GroupId'])
+
+        log_general.info('Added security-group {} to subnet {}'.format(sg['GroupId'], subnet.id))
+
+
+def get_secgroup_data(inst, subnet, secgrp_set):
+    """
+    gather security-group data associated with an instance (ultimately w/a subnet)
+    
+    Args:
+        secgrp_set (set): set of security groups 
+        subnet (boto3.Subnet): object containing subnet data used to populate data model 
+        inst (boto3.Instance): an instance object from which the data is collected 
+
+    Returns: None 
+
+    """
+
+    for sg in inst.security_groups:
+
+        secgrp_set.add(sg['GroupId'])
+
+        log_general.info('Added security-group {} from subnet {}'.format(sg['GroupId'], subnet.id))
+
+
+def get_account_id(session):
+    """
+    helper function to get account ID given an AWS session
+    
+    The account information is available only via an STS (secure token service) client object.  The session object is
+    used to create the client object.
+    
+    Args:
+        session (boto3.Session): session object from which to create a client object 
+
+    Returns (string): AWS account ID
+
+    """
+
+    sts = session.client('sts')
+
+    return sts.get_caller_identity()['Account']
+
+
 def get_subnets(networks, vpc, inventory_instances, session):
     """
     enumerate subnets in a given VPC, subsequently extract security groups (per subnet) and install in a dict of
@@ -536,71 +687,52 @@ def get_subnets(networks, vpc, inventory_instances, session):
 
     """
 
-    for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
+    if inventory_instances and session:
 
-        subnet_name = get_aws_object_name(subnet.tags)
+        acct_id = get_account_id(session)
 
-        if not subnet_name:
-            subnet_name = create_synthetic_object_name([subnet.cidr_block, subnet.id,
-                                                        subnet.availability_zone, vpc.id])
+        for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
 
-        subnet_attribs = {'name': subnet_name, 'avail_zone': subnet.availability_zone, 'default': subnet.default_for_az,
-                          'cidr': subnet.cidr_block, 'assign_publics': subnet.map_public_ip_on_launch,
-                          'state': subnet.state, 'assoc_route_table': None, 'tags': subnet.tags}
+            get_subnet_data(subnet, vpc, networks[vpc.id])
 
-        # vpc_name = get_aws_object_name(vpc.tags)
-        networks[vpc.id].add_node(subnet.id, **subnet_attribs)
-        log_general.info('Added subnet node {} to vpc {}'.format(subnet.id, vpc.id))
+            secgrp_set = set([])  # set of all security groups in this subnet
 
-        sec_group_set = set([])  # set of all security groups in this subnet
+            for inst in subnet.instances.all():
+                get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, networks[vpc.id])
 
-        if inventory_instances and session:
+            networks[vpc.id].node[subnet.id]['sec_groups'] = secgrp_set
 
-            sts = session.client('sts')
+    elif inventory_instances and not session:
 
-            acct_id = sts.get_caller_identity()['Account']
+            log_general.warning('keep instance inventory failed.  CLI argument inventory_instances '
+                                'was true, but no valid session object provided')
+
+    else:
+
+        for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
+
+            get_subnet_data(subnet, vpc, networks[vpc.id])
+
+            secgrp_set = set([])  # set of all security groups in this subnet
 
             for inst in subnet.instances.all():
 
-                root_dev = inst.root_device_name
+                get_secgroup_data(inst, vpc, secgrp_set)
 
-                volumes = inst.volumes.all()
+            networks[vpc.id].node[subnet.id]['sec_groups'] = secgrp_set
 
-                for vol in volumes:
 
-                    for attach in vol.attachments:
-
-                        if attach['Device'] == root_dev:
-                            root_create_time = vol.create_time
-
-                model_instances[inst.id]['account_id'] = acct_id
-                model_instances[inst.id]['ssh_key_name'] = inst.key_name
-                model_instances[inst.id]['priv_ipv4'] = inst.private_ip_address
-                model_instances[inst.id]['priv_hostname'] = inst.private_dns_name
-                model_instances[inst.id]['platform'] = inst.platform
-                model_instances[inst.id]['state'] = inst.state['Name']
-                model_instances[inst.id]['tags'] = inst.tags
-                model_instances[inst.id]['root_dev'] = inst.root_device_name
-                model_instances[inst.id]['root_create_time'] = root_create_time
-
-        elif inventory_instances and not session:
-
-            log_general.warn('keep instance inventory failed.  CLI argument inventory_instances was true, '
-                             'but no valid session object provided')
-
-        else:
-
-            for inst in subnet.instances.all():  # instance is a aws instance
-
-                # get  security groups for this subnet from the instances in it
-                # todo P1 add NAT instances as network nodes - check source/dest-check instance proprty to identify natinst
-                for group in inst.security_groups:
-
-                    sec_group_set.add(group['GroupId'])
-                    log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
-
-                    # populate networkx network object with security groups
-                    networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
+                # for inst in subnet.instances.all():  # instance is a aws instance
+        #
+        #     # get  security groups for this subnet from the instances in it
+        #     # todo P1 add NAT instances as network nodes - check source/dest-check instance proprty to identify natinst
+        #     for group in inst.security_groups:
+        #
+        #         secgrp_set.add(group['GroupId'])
+        #         log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
+        #
+        #         # populate networkx network object with security groups
+        #         networks[vpc.id].node[subnet.id]['sec_groups'] = secgrp_set
 
 
 def get_vpc_endpoint_data(network, vpc, aws_session):
