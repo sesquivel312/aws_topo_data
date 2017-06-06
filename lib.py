@@ -191,12 +191,11 @@ def get_args():
     parser.add_argument('--keep-instance-inventory',
                         action='store_true',
                         help='Flag that when set will cause instance inventory '
-                                                                     'data to be recorded.  Inventory data is not '
-                                                                     'recorded by default.')
+                             'data to be recorded.  Inventory data is not recorded by default.')
 
     parser.add_argument('--instance-inventory-only',
-                        help='Only collect inventory, do not collect any other topology '
-                                                          'data (i.e. subnets, route-tables), etc.',
+                        help='Only collect inventory, do not collect any other '
+                             'topology data (i.e. subnets, route-tables), etc.',
                         action='store_true')
 
     args = parser.parse_args()
@@ -205,7 +204,6 @@ def get_args():
     inventory_mutex_args = ['graph_format', 'rule_check_report']  # cli args not compatible w/inventory only
 
     if not args.instance_inventory_only:  # inst. inv. only flag not provided - "don't care", continue
-        print 'only not specified, dont care'
         return args
 
     # no mutex args specified
@@ -514,7 +512,7 @@ def create_gateway_name(route):
     return ':'.join(name_components)
 
 
-def get_subnets(networks, vpc, inventory_instances):
+def get_subnets(networks, vpc, inventory_instances, session):
     """
     enumerate subnets in a given VPC, subsequently extract security groups (per subnet) and install in a dict of
     networkx network objects
@@ -524,8 +522,12 @@ def get_subnets(networks, vpc, inventory_instances):
     associated route table.  NB for subnets not explicitly associated with a route table this will remain None, which
     implies the subnet is implicitly associated with the main route table of the VPC.  Regardless the
     assoc_route_table key is only created here, it's final value will be udpated by the functions that add route-tables
+    
+    If inventory_instances flag is false then instance data is not recorded.  When true, the data is recorded in
+    the data model at the node level, one node per instance
 
     Args:
+        session (boto3.Session): session object used to create boto3.Client, required to obtain account via STS
         inventory_instances (bool):  Determines if instance inventory is kept 
         networks (dict of networkx.Graph): dict of Graphs to populate with data from AWS API
         vpc (boto3.Vpc): Vpc object used to get the data from AWS that will be inserted into the Graph object
@@ -552,16 +554,53 @@ def get_subnets(networks, vpc, inventory_instances):
 
         sec_group_set = set([])  # set of all security groups in this subnet
 
-        # populate networkx network object with security groups
-        for instance in subnet.instances.all():  # instance is a aws instance
-            # get the security groups for this subnet
-            # from the instances in it
-            # todo P1 add NAT instances as network nodes - check source/dest-check instance proprty to identify natinst
-            for group in instance.security_groups:
-                sec_group_set.add(group['GroupId'])
-                log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
+        if inventory_instances and session:
 
-        networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
+            sts = session.client('sts')
+
+            acct_id = sts.get_caller_identity()['Account']
+
+            for inst in subnet.instances.all():
+
+                root_dev = inst.root_device_name
+
+                volumes = inst.volumes.all()
+
+                for vol in volumes:
+
+                    for attach in vol.attachments:
+
+                        if attach['Device'] == root_dev:
+                            root_create_time = vol.create_time
+
+                model_instances[inst.id]['account_id'] = acct_id
+                model_instances[inst.id]['ssh_key_name'] = inst.key_name
+                model_instances[inst.id]['priv_ipv4'] = inst.private_ip_address
+                model_instances[inst.id]['priv_hostname'] = inst.private_dns_name
+                model_instances[inst.id]['platform'] = inst.platform
+                model_instances[inst.id]['state'] = inst.state['Name']
+                model_instances[inst.id]['tags'] = inst.tags
+                model_instances[inst.id]['root_dev'] = inst.root_device_name
+                model_instances[inst.id]['root_create_time'] = root_create_time
+
+        elif inventory_instances and not session:
+
+            log_general.warn('keep instance inventory failed.  CLI argument inventory_instances was true, '
+                             'but no valid session object provided')
+
+        else:
+
+            for inst in subnet.instances.all():  # instance is a aws instance
+
+                # get  security groups for this subnet from the instances in it
+                # todo P1 add NAT instances as network nodes - check source/dest-check instance proprty to identify natinst
+                for group in inst.security_groups:
+
+                    sec_group_set.add(group['GroupId'])
+                    log_general.info('Added security-group {} to subnet {}'.format(group['GroupId'], subnet.id))
+
+                    # populate networkx network object with security groups
+                    networks[vpc.id].node[subnet.id]['sec_groups'] = sec_group_set
 
 
 def get_vpc_endpoint_data(network, vpc, aws_session):
@@ -1215,7 +1254,7 @@ def add_pcx_edges(network, vpc):
                     log_general.info('Added edge {} - {} in vpc {}'.format(router, nexthop_name, vpc.id))
 
 
-def build_nets(networks, vpcs, session=None, inventory_instances=False):
+def build_nets(networks, vpcs, session=None, keep_instance_inventory=False):
     """
     Gather the network topology data used later for analysis and visualization
 
@@ -1226,7 +1265,7 @@ def build_nets(networks, vpcs, session=None, inventory_instances=False):
     by code that analyzes the topology and, optionally, renders it for visualization by humans.
 
     Args:
-        inventory_instances (bool): Determines if instance inventory is recorded 
+        keep_instance_inventory (bool): record instance data in data model when true
         networks (dict(networkx.Graph)):  each Graph holds the topo data for a given AWS VPC
         vpcs (boto3.Collection):  iterator of boto3.Vpc objects - from which most/all of the topo data comes
         session (boto3.Session): session object initialized with api keys and region information
@@ -1252,7 +1291,7 @@ def build_nets(networks, vpcs, session=None, inventory_instances=False):
         # need to pass networks dict to functions below because in at least one case (vpc peer connections) the network
         # to which a node must be added may not be the one used in this iteration of the for-loop
         # sec_groups = get_subnet_data(networks, vpc)
-        get_subnets(networks, vpc, inventory_instances)
+        get_subnets(networks, vpc, keep_instance_inventory, session=session)
 
         get_vpc_endpoint_data(network, vpc, session)
 

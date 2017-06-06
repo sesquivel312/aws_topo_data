@@ -95,7 +95,7 @@ if args.instance_inventory_only:
 networks = {}
 
 # collect all the topo and related meta data
-lib.build_nets(networks, vpcs, aws_session)
+lib.build_nets(networks, vpcs, aws_session, args.keep_instance_inventory)
 
 lib.get_sec_group_rules_by_subnet(networks, sec_groups)
 
