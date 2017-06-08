@@ -1,5 +1,6 @@
-* factor rule check logging out of the graph rendering function
+* change inventory only option to take a file name (currently simple flag)
 * add nacl rules into rule export
+* factor rule check logging out of the graph rendering function
 * fix vpn edge handling - may only be missing b/c VPN is down
 * handling SG's and other (?) things in the src/dest spot of a rule
 * fix logging to handle multiple output thresholds (e.g. warning, info, etc.)

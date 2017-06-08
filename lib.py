@@ -52,20 +52,18 @@ import netaddr
 import networkx as nx
 import matplotlib.pyplot as plot
 
+# todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
 # todo P1 identify that ELB's exist
 # todo P1 identify that WAF/Shield is configured
-# todo P1 add paginator to use of client ec2.client.describe_vpc_endpoints
-# todo P2 adjust  NACLs to use 'inacl', 'outacl' rather than egress/ingress - to make things uniform
+# todo P2 change file export to use a "run name", and then name files based on that and a "type" tag
 # todo P2 run port checks on ELB listener ports
 # todo P2 when ELB listener = 443, verify ciphers are configured at all AND check for weak ciphers (2 diff checks)
 # todo P2 add support for Direct Connect (similar to VPN)
 # todo P2 add full LB support
 # todo P2 add full WAF & sheild support
-# todo P2 Add a name key to all nodes in the network graph (currently only added to the route-table nodes)
-# todo P2 update rendering functions to use node names rather than ID's\
+# todo P3 adjust  NACLs to use 'inacl', 'outacl' rather than egress/ingress - to make things uniform
 # todo P3 optimize data collection - e.g. currently looping network nodes multiple times to add edges of diff types
 # todo P3 try to get logging out of global in this module
-# todo P3 decide on UTC or local TZ, then fix log message format accordingly
 # todo P3 start using the functions built into logging that read config files
 # todo P3 logging - generally improve - in particular how it's 'shared' between the driver script and this module
 # todo P3 logging - factor logging setup out of global name space and make configurable via CLI and file
