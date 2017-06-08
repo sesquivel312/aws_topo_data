@@ -171,20 +171,13 @@ def get_args():
 
     parser.add_argument('--output-dir', help='Path output is written to, current dir if not specified')
 
-    parser.add_argument('--export-rules', help='Path to file in which to place security rules.  Rules are not exported'
-                                               'by default')
+    parser.add_argument('--run-name', default=None, help='String included in exported file names from a run of the '
+                                                         'script. Enables users to quickly identify output files '
+                                                         'that *belong-together*.')
 
-    parser.add_argument('--log-file', default=None, help='Name of file in which to place log entries.  If --output-dir '
-                                                         'is specified then the log file will be created in the '
-                                                         'directory specified.  If not the log file will be created in '
-                                                         'the current working directory')
-
-    parser.add_argument('--rule-check-report',
-                        default=None,
-                        help='Filename to use for rule check results.  By default '
-                                                    'check results will be placed in the general log file.  If the'
-                                                    '--outupt-dir option is specified the rule check report file will '
-                                                    'be placed in the directory supplied to that option')
+    parser.add_argument('--export-rules', action='store_true', help='Flag indicating if security rules are exported'
+                                                                    'to a file.  If set, the filename will end with '
+                                                                    'rules.csv')
 
     parser.add_argument('--keep-instance-inventory',
                         action='store_true',
@@ -198,7 +191,7 @@ def get_args():
 
     args = parser.parse_args()
 
-    # check for disallowed CLI combinations not supported by argparse
+    # check for disallowed CLI combinations argparse can't check for
     inventory_mutex_args = ['graph_format', 'rule_check_report']  # cli args not compatible w/inventory only
 
     if not args.instance_inventory_only:  # inst. inv. only flag not provided - "don't care", continue

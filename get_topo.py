@@ -14,6 +14,7 @@
 import os
 import sys
 import logging
+import datetime as dt
 
 import pdb
 import pprint as pp
@@ -33,9 +34,15 @@ APP_NAME = os.path.split(__file__)[1]
 LOG_MSG_FORMAT_STRING = '%(asctime)s {tzdata} {app_name} %(message)s'.format(tzdata=TZ_DATA, app_name=APP_NAME)
 LOG_TIMESTAMP_FORMAT_STRING = '%Y-%m-%d %H:%M:%S'
 
+#get run-time
+run_time = dt.datetime.now()
+run_time_string = dt.date.strftime(run_time, '%Y%m%d%H%M')
+
 # create loggers
 log_general = logging.getLogger('aws_topo')  # root/general logger
 log_rule_check_report = logging.getLogger('aws_topo.check_report')  # rule check report log
+log_rule_check_report.propagate = False  # don't duplicate messages in parent loggers
+
 
 args = lib.get_args()
 
@@ -48,26 +55,34 @@ try:
 except OSError:
     pass  # assume exception means directory exists, if there are other reasons for the exception then fix this
 
-if not args.log_file:  # if no logfile CLI option supplied, log to the default 'general.log' in the current dir
-    args.log_file = os.path.join(args.output_dir, 'general.log')
+if args.run_name: # file name "tag" specified
+    args.log_file = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '.log')
+    rule_check_rpt_fname = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '-rulechk.log')
+    net_dump_fname = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '-net_dump.log')
+    if args.export_rules:
+        rule_export_fname = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '-rules.csv')
+    else:
+        rule_export_fname = None
 else:
-    args.log_file = os.path.join(args.output_dir, args.log_file)
+    args.log_file = os.path.join(args.output_dir, run_time_string + '.log')
+    rule_check_rpt_fname = os.path.join(args.output_dir, run_time_string + '-rulechk.log')
+    net_dump_fname = os.path.join(args.output_dir, run_time_string + '-net_dump.log')
+    if args.export_rules:
+        rule_export_fname = os.path.join(args.output_dir, run_time_string + '-rules.csv')
+    else:
+        rule_export_fname = None
 
 logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
                     filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
 
-if args.rule_check_report:  # --rule-check-report option specified on CLI
-    log_rule_check_report.propagate = False  # don't duplicate messages in parent loggers
-    args.rule_check_report = os.path.join(args.output_dir, args.rule_check_report)  # prepare var holding log path/file
+# It appears that disabling propagation also stops logging from using previous format info as well, so create it
+rule_check_log_fmt = logging.Formatter(fmt=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING)
 
-    # It appears that disabling propagation also stops logging from logging for format info as well, so create that
-    rule_check_log_fmt = logging.Formatter(fmt=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING)
-
-    # now have all the info we need to crate, configure and apply the handler
-    rule_check_log_handler = logging.FileHandler(args.rule_check_report, mode='w')
-    rule_check_log_handler.setFormatter(rule_check_log_fmt)
-    rule_check_log_handler.setLevel(logging.INFO)
-    log_rule_check_report.addHandler(rule_check_log_handler)
+# now have all the info we need to crate, configure and apply the logging handler
+rule_check_log_handler = logging.FileHandler(rule_check_rpt_fname, mode='w')
+rule_check_log_handler.setFormatter(rule_check_log_fmt)
+rule_check_log_handler.setLevel(logging.INFO)
+log_rule_check_report.addHandler(rule_check_log_handler)
 
 key_id, key = lib.get_aws_api_credentials()
 
@@ -104,10 +119,9 @@ lib.get_nacls(networks, vpcs)
 lib.execute_rule_checks(networks)
 
 # dump network data to file
-net_dump_file = os.path.join(args.output_dir, 'net-dump.out')
-with open(net_dump_file, 'w') as f:
+with open(net_dump_fname, 'w') as f:
     lib.dump_network_data(networks, f)
 
 if args.graph_format:
-    lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, csv_file=args.export_rules)
+    lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, csv_file=rule_export_fname)
 
