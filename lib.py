@@ -1898,7 +1898,7 @@ def render_pyplot(net, output_dir, node_cmap=None):
     log_general.info('Render PyPlot {}'.format(output_dir))
 
 
-def export_sgrules_to_csv(networks, outfile='rules.csv'):
+def export_access_control_rules(networks, outfile='rules.csv'):
     """
     Write security group rules to outfile formatted as csv
 
@@ -1910,28 +1910,57 @@ def export_sgrules_to_csv(networks, outfile='rules.csv'):
     :return: no return value
     """
 
-    f = open(outfile, 'w')
-    csvwriter = csv.writer(f, lineterminator='\n')
+    with open(outfile, 'w') as f:
 
-    csvwriter.writerow('vpc_id subnet_id sec_group_id direction rule_num src_dst protocol port_range'.split())
+        csvwriter = csv.writer(f, lineterminator='\n')
 
-    for net_id, net_data in networks.iteritems():
+        csvwriter.writerow('vpc_id subnet_id sec_group_nacl_id direction rule_num src_dst protocol port_range'.split())
 
-        for node_id, node_data in net_data.node.iteritems():
+        for net_id, net_data in networks.iteritems():
 
-            if node_id.startswith('subnet'):  # set rules for subnets
+            # export network ACLs
+            acl_dirs = ['ingress_entries', 'egress_entries']
 
-                subnet = node_data  # use a different label for readability
+            for acl_id, acl_data in net_data.graph['nacls'].iteritems():  # loop over ACLs
 
-                for acl in subnet['inacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'in', acl['src_dst'], acl['protocol'],
-                                        acl['ports']])
-                for acl in subnet['outacl']:  # inbound acl first
-                    csvwriter.writerow([net_id, node_id, acl['sgid'], 'out', acl['src_dst'], acl['protocol'],
-                                        acl['ports']])
+                for acl_dir in acl_dirs:  # ea acl has one or more of each type of entry - ingress and egress
 
-    f.flush()
-    f.close()
+                    if acl_dir.startswith('ingress'):
+                        d = 'in'
+                    else:
+                        d = 'out'
+
+                    for ace in acl_data[acl_dir]:  # loop over the actual entries
+
+                        csvwriter.writerow([net_id, 'NA', acl_id, d, ace['number'],
+                                            ace['src_dst'], ace['protocol'], ace['ports']])
+
+                log_general.info('Exported NACL {} in VPC {} to csv file {}'.format(acl_id, net_id, outfile))
+
+            # export security-group rules
+            for node_id, node_data in net_data.node.iteritems():
+
+                if node_id.startswith('subnet'):  # set rules for subnets
+
+                    subnet_id = node_id
+                    subnet = node_data  # use a different label for readability
+
+                    for ace in subnet['inacl']:  # inbound acl first
+
+                        csvwriter.writerow([net_id, subnet_id, ace['sgid'], 'in', 'NA',
+                                            ace['src_dst'], ace['protocol'],  ace['ports']])
+
+                    log_general.info('Exported ingress access rules from security-groups for '
+                                     'subnet: {} in VPC: {} to csv file {}'.format(subnet_id, net_id, outfile))
+
+                    for ace in subnet['outacl']:  # inbound acl first
+
+                        csvwriter.writerow([net_id, subnet_id, ace['sgid'], 'out', 'NA',
+                                            ace['src_dst'], ace['protocol'], ace['ports']])
+
+                    log_general.info('Exported egress access rules from security-groups for '
+                                         'subnet: {} in VPC: {} to csv file {}'.format(subnet_id, net_id, outfile))
+
 
 
 def render_nets(networks, format_list, output_dir=None, csv_file=None):
@@ -1999,15 +2028,14 @@ def render_nets(networks, format_list, output_dir=None, csv_file=None):
             render_pyplot(network, output_dir)
 
     # todo P3 refactor to own function? it's not related to topology
-    if csv_file:  # should be None if option not specified, otherwise it's a filename with opt. path
+    # if csv_file:  # should be None if option not specified, otherwise it's a filename with opt. path
+    #
+    #     # todo if keeping this feature, enhance it to handle "all" cases of path/filename that may be handed to it
+    #     if os.path.split(csv_file)[0] == '':  # got file name only if path part is empty
+    #         csv_file = os.path.join(output_dir, csv_file)  # save with other output files
+    #
+    #     export_sgrules_to_csv(networks, outfile=csv_file)
 
-        # todo if keeping this feature, enhance it to handle "all" cases of path/filename that may be handed to it
-        if os.path.split(csv_file)[0] == '':  # got file name only if path part is empty
-            csv_file = os.path.join(output_dir, csv_file)  # save with other output files
-
-        export_sgrules_to_csv(networks, outfile=csv_file)
-
-        log_general.info('Rendered rules to CSV file {}'.format(csv_file))
 
 
 def create_reverse_dict(dict):
