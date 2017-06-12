@@ -56,21 +56,32 @@ except OSError:
     pass  # assume exception means directory exists, if there are other reasons for the exception then fix this
 
 if args.run_name: # file name "tag" specified
-    args.log_file = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '.log')
-    rule_check_rpt_fname = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '-rulechk.log')
-    net_dump_fname = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '-net_dump.log')
+    args.log_file = os.path.join(args.output_dir, 'general-' + args.run_name + '-' + args.region + '-' + run_time_string + '.log')
+    rule_check_rpt_fname = os.path.join(args.output_dir, 'rulechk-' + args.run_name + '-' + args.region + '-' +
+                                        run_time_string + '.log')
+    net_dump_fname = os.path.join(args.output_dir, 'net_dump-' + args.run_name + '-' + args.region + '-' +
+                                  run_time_string + '.log')
     if args.export_rules:
-        rule_export_fname = os.path.join(args.output_dir, args.run_name + '-' + run_time_string + '-rules.csv')
+        rule_export_fname = os.path.join(args.output_dir, 'rules-' + args.run_name + '-' + args.region + '-' +
+                                         run_time_string + '.csv')
     else:
         rule_export_fname = None
+
+    if args.instance_inventory_only:
+        inventory_fname = os.path.join(args.output_dir, 'instances-' + args.run_name + '-' + args.region + '-' +
+                                       run_time_string + '.csv')
+
 else:
-    args.log_file = os.path.join(args.output_dir, run_time_string + '.log')
-    rule_check_rpt_fname = os.path.join(args.output_dir, run_time_string + '-rulechk.log')
-    net_dump_fname = os.path.join(args.output_dir, run_time_string + '-net_dump.log')
+    args.log_file = os.path.join(args.output_dir, 'general-' + args.region + '-' + run_time_string + '.log')
+    rule_check_rpt_fname = os.path.join(args.output_dir, 'rulechk-' + args.region + '-' + run_time_string + '.log')
+    net_dump_fname = os.path.join(args.output_dir, 'net_dump-' + args.region + '-' + run_time_string + '.log')
     if args.export_rules:
-        rule_export_fname = os.path.join(args.output_dir, run_time_string + '-rules.csv')
+        rule_export_fname = os.path.join(args.output_dir, 'rules-' + args.region + '-' + run_time_string + '.csv')
     else:
         rule_export_fname = None
+
+    if args.instance_inventory_only:
+        inventory_fname = os.path.join(args.output_dir, 'instances-' + args.region + '-' + run_time_string + '.csv')
 
 logging.basicConfig(format=LOG_MSG_FORMAT_STRING, datefmt=LOG_TIMESTAMP_FORMAT_STRING,
                     filename=args.log_file, filemode='w', level=logging.INFO)  # filename=general_log_file, filemode='w'
@@ -103,8 +114,7 @@ vpcs, sec_groups = lib.get_vpcs_and_secgroups(session=aws_session)
 log_general.info('Successfully gathered VPCs and security-groups')
 
 if args.instance_inventory_only:
-    outfile = os.path.join(args.output_dir, 'instances.csv')
-    lib.get_instance_inventory(vpcs, outfile, aws_session)
+    lib.get_instance_inventory(vpcs, inventory_fname, aws_session)
     sys.exit()
 
 networks = {}
