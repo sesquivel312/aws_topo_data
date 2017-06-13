@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # todo P1 identify subnets that assign public IP's in renderings
+# todo P2 edges from nat gateways to their subnet (necessary to see how they lead out of the VPC)
 # todo P2 add different colors/icons to pyplot images based on type of node
 # todo P2 colorize the edges based on destination, e.g. red for lines to IGW, VPN, etc.
 # todo P3 in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
