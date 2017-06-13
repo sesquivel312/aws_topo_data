@@ -1866,6 +1866,7 @@ def render_pyplot(net, run_time_str, region, output_dir, run_name=None, node_cma
     Returns: None
 
     """
+    # todo investigate augmenting layout algo for more readable pics - e.g. routers in middle, subnets on bottom
 
     if not node_cmap:
         node_cmap = {'subnet': '0.5',
@@ -1886,7 +1887,7 @@ def render_pyplot(net, run_time_str, region, output_dir, run_name=None, node_cma
 
     prepare_nodes(net.node)
 
-    plot.figure(figsize=(20, 20))
+    plot.figure(figsize=(20, 20))  # set matplotlib figure-size before running networkx layout/drawing functions
 
     nx.draw_networkx_nodes(net, pos=pos, with_lables=True, node_size=800,
                            node_color=node_clist, alpha=0.5, linewidths=None)  # nodesz was 800
@@ -1898,7 +1899,6 @@ def render_pyplot(net, run_time_str, region, output_dir, run_name=None, node_cma
 
     plot.title('{vpc_name}\n{region}'.format(vpc_name=netid, region=region))
     plot.axis('off')
-    # plot.tight_layout()
     plot.savefig(fname)
     plot.clf()
 
