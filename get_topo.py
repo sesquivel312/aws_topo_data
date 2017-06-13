@@ -133,7 +133,8 @@ with open(net_dump_fname, 'w') as f:
     lib.dump_network_data(networks, f)
 
 if args.graph_format:
-    lib.render_nets(networks, args.graph_format, output_dir=args.output_dir, csv_file=rule_export_fname)
+    lib.render_nets(networks, args.graph_format, run_time_string, args.region,
+                    output_dir=args.output_dir, run_name=args.run_name)
 
 if args.export_rules:
     lib.export_access_control_rules(networks, rule_export_fname)

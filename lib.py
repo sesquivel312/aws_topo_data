@@ -70,6 +70,7 @@ import matplotlib.pyplot as plot
 # todo P3 generalize this away from AWS specifically
 # todo P3 logging - factor out logging in each function to a utility function so calls w/in functions are "the same"?
 # todo P3 include which risky ports were identified in a port range
+# todo P3 include region in title of graph output
 # todo P4 add geo and/or black/white-list IP range/address checks - i.e. check lists supplied by EW or 3rd parties
 # todo P4 IAM audit
 # todo P4 Terraform Audit, this is mostly a separate function, but could be combined to "Diff"  to-be and as-is configs
@@ -1815,8 +1816,9 @@ def render_gexf(network, out_dir):
     nx.write_gexf(network, out_file, prettyprint=True)
 
 
-def render_pyplot(net, output_dir, node_cmap=None):
+def render_pyplot(net, run_time_str, region, output_dir, run_name=None, node_cmap=None):
     """
+    network, run_time_string, region, output_dir, run_name
     generate an image of the graph using pyplot
     
     Some useful matplot lib info:
@@ -1854,6 +1856,9 @@ def render_pyplot(net, output_dir, node_cmap=None):
                 else: red
 
     Args:
+        run_time_str (string): time of script run in string format 
+        region (string): aws region against which script was run 
+        run_name (string): used when naming output files, useful for humans to correlate files with "real world"
         node_cmap (dict): maps node types to color values (0.0 .. 1.0) 
         net (networkx.Graph): network to render
         output_dir (string): location to deposit image file
@@ -1873,25 +1878,27 @@ def render_pyplot(net, output_dir, node_cmap=None):
 
     labels = get_pyplot_label_dict(net)
     netid = net.graph['vpc_name']
-    fname = os.path.join(output_dir, netid)
+    fname = os.path.join(output_dir, netid + '-' + run_name + '-' + region + '-' + run_time_str)
 
     node_clist = [node_cmap.get(node.split('-')[0], 'c') for node in net.nodes()]
 
-    pos = nx.spring_layout(net, scale=10)
+    pos = nx.spring_layout(net, k=0.3)  # scale=1.0
 
     prepare_nodes(net.node)
 
+    plot.figure(figsize=(20, 20))
+
     nx.draw_networkx_nodes(net, pos=pos, with_lables=True, node_size=800,
-                           node_color=node_clist, alpha=0.5, linewidths=None)
+                           node_color=node_clist, alpha=0.5, linewidths=None)  # nodesz was 800
 
     nx.draw_networkx_labels(net, labels=labels, pos=pos, font_weight='medium',
-                            font_size=10)
+                            font_size=11)
 
     nx.draw_networkx_edges(net, pos, edge_color='k', alpha=0.8)
 
-    plot.title(netid)
+    plot.title('{vpc_name}\n{region}'.format(vpc_name=netid, region=region))
     plot.axis('off')
-    plot.tight_layout()
+    # plot.tight_layout()
     plot.savefig(fname)
     plot.clf()
 
@@ -1962,18 +1969,19 @@ def export_access_control_rules(networks, outfile='rules.csv'):
                                          'subnet: {} in VPC: {} to csv file {}'.format(subnet_id, net_id, outfile))
 
 
-
-def render_nets(networks, format_list, output_dir=None, csv_file=None):
+def render_nets(networks, format_list, run_time_string, region, output_dir=None, run_name=None):
     """
     Export topology/graph data to formats indicated by CLI options
     
     Args:
+        run_time_string (string): time of script run as a string 
+        region (string): aws region 
+        run_name (string): tag used when creating file names - useful for humans to correlate output w/"real world"
         networks (dict):  networkx.Graph objects containing network topology data, one per VPC
         format_list (list): list of formats to export, can be a list of length one 
         output_dir (string): directory in which to place exported data
-        csv_file: 
 
-    Returns:
+    Returns: None
 
     """
     # todo P3 YAML export should be handled same as all other exports - i.e. no separate CLI option, etc.
@@ -2025,7 +2033,7 @@ def render_nets(networks, format_list, output_dir=None, csv_file=None):
 
         for network in networks.values():
 
-            render_pyplot(network, output_dir)
+            render_pyplot(network, run_time_string, region, output_dir=output_dir, run_name=run_name)
 
     # todo P3 refactor to own function? it's not related to topology
     # if csv_file:  # should be None if option not specified, otherwise it's a filename with opt. path
