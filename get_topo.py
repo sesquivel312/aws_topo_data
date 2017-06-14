@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # todo P1 identify subnets that assign public IP's in renderings
 # todo P2 edges from nat gateways to their subnet (necessary to see how they lead out of the VPC)
-# todo P2 add different colors/icons to pyplot images based on type of node
-# todo P2 colorize the edges based on destination, e.g. red for lines to IGW, VPN, etc.
+# todo P2 list instances directly connected to public subnets
+# todo P2 ignore SG rules that allow all traffic w/in the SG? (default?)
 # todo P3 in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
 # todo P3 refactor node data so it's grouped by type - e.g. data = {'route_tables': {<datahere>} ...
 #   'inet_gws': {<datahere>}, ...} << this will allow me to access just those types of nodes, rather...
@@ -11,6 +11,8 @@
 #   accounts would be more interesting
 # todo P3 handle isolated nodes differently in visualizations, e.g. move to bottom, different color...
 #   at least add flag to indicate this
+# todo P3 determine if trusted advisor checks can be added using API, do so if yesl
+# todo P4 connect CIDR blocks w/meta data from: IPAM, WHOIS, ???
 
 import os
 import sys

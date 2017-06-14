@@ -37,6 +37,9 @@ network (dict):
     <vpc_id> (string): AWS vpc ID
         <networkx.Graph>: holds topology and other data (see below)
 
+instances (list): of dicts - a db of instance data used for lookups of said data
+
+
 ---
 
 networkx.Graph:
