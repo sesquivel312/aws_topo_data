@@ -37,14 +37,12 @@ network (dict):
     <vpc_id> (string): AWS vpc ID
         <networkx.Graph>: holds topology and other data (see below)
 
-instances (list): of dicts - a db of instance data used for lookups of said data
-
-
 ---
 
 networkx.Graph:
 
   graph (dict): arbitrary data related to graph
+    acct_id (str): aws account ID to which this vpc belongs
     vpc_id (string): AWS vpc ID, this is redundant w/the key for the graph in the networks dict, makes simpler lookups
     vpc_name (string): name of VPC from tags or the vpc-id if name !exist
     name: (string): networkx.Graph.name set to vpc_name at graph creation time  # this is what __str__ looks for when one does: print G, set this to b
@@ -70,6 +68,13 @@ networkx.Graph:
          Key (string): key name,
          Value (string): value associated w/key
          }
+    instances (list): list of dicts of instance data
+      {
+        acct_id (str): aws account ID
+        id (str):
+        name (str): name from private_dns_name
+
+      }
 
 
 

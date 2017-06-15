@@ -1407,7 +1407,11 @@ def build_nets(networks, vpcs, session=None, keep_instance_inventory=False):
         if not vpc_name:
             vpc_name = create_synthetic_object_name([vpc.id])
 
-        vpc_attribs = {'name': vpc_name, 'vpc_id': vpc.id, 'vpc_name': vpc_name, 'cidr': vpc.cidr_block,
+        sts = session.client('sts')
+
+        acct_id = sts.get_caller_identity()['Account']
+
+        vpc_attribs = {'acct_id': acct_id, 'vpc_id': vpc.id, 'vpc_name': vpc_name, 'name': vpc_name, 'cidr': vpc.cidr_block,
                        'isdefault': vpc.is_default, 'state': vpc.state, 'main_route_table': None,
                        'dhcp_opt_id':vpc.dhcp_options_id, 'nacls': {}, 'tags': vpc.tags}  # collect node attributes
 
