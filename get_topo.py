@@ -143,5 +143,5 @@ if args.graph_format:
                     output_dir=args.output_dir, run_name=args.run_name)
 
 if args.export_rules:
-    lib.export_access_control_rules(networks, rule_export_fname)
+    lib.export_access_control_rules_2(networks, rule_export_fname)
 

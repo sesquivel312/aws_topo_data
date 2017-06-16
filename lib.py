@@ -2010,6 +2010,65 @@ def export_access_control_rules(networks, outfile='rules.csv'):
                                          'subnet: {} in VPC: {} to csv file {}'.format(subnet_id, net_id, outfile))
 
 
+def export_access_control_rules_2(networks, outfile='rules.csv'):
+    """
+    Write security group rules to outfile formatted as csv
+
+    Writes a single csv file with ea row a rule in the network.  Format can be obtained by looking at the header
+    row defined in the function itself
+
+    :param networks: dict of networkx network objects identified by vpc_id, e.g. {vpc-xxx: netxobj, ...}
+    :param outfile: fully qualified path of output csv file
+    :return: no return value
+    """
+
+    with open(outfile, 'w') as f:
+
+        csvwriter = csv.writer(f, lineterminator='\n')
+
+        csvwriter.writerow('vpc_id subnet_id sec_group_nacl_id direction rule_num src_dst protocol port_range'.split())
+
+        for net_id, net_data in networks.iteritems():
+
+            # export network ACLs
+            acl_dirs = ['ingress_entries', 'egress_entries']
+
+            for acl_id, acl_data in net_data.graph['nacls'].iteritems():  # loop over ACLs
+
+                for acl_dir in acl_dirs:  # ea acl has one or more of each type of entry - ingress and egress
+
+                    if acl_dir.startswith('ingress'):
+                        d = 'in'
+                    else:
+                        d = 'out'
+
+                    for ace in acl_data[acl_dir]:  # loop over the actual entries
+
+                        csvwriter.writerow([net_id, 'NA', acl_id, d, ace['number'],
+                                            ace['src_dst'], ace['protocol'], ace['ports']])
+
+                log_general.info('Exported NACL {} in VPC {} to csv file {}'.format(acl_id, net_id, outfile))
+
+            # export security-group rules
+            acl_dirs = ['inacl', 'outacl']
+
+            for sg_id, sg_acls in net_data.graph['sec_group_rules'].iteritems():  # loop over ACLs
+
+                for acl_dir in acl_dirs:  # ea acl has one or more of each type of entry - ingress and egress
+
+                    if acl_dir == 'inacl':
+                        d = 'in'
+                    else:
+                        d = 'out'
+
+                    for ace in sg_acls[acl_dir]:  # loop over the actual entries
+
+                        csvwriter.writerow([net_id, 'NA', sg_id, d, 'NA',
+                                            ace['src_dst'], ace['protocol'], ace['ports']])
+
+                log_general.info('Exported sec-group acl {} in VPC {} to csv file {}'.format(sg_id, net_id, outfile))
+
+
 def render_nets(networks, format_list, run_time_string, region, output_dir=None, run_name=None):
     """
     Export topology/graph data to formats indicated by CLI options
@@ -2409,6 +2468,55 @@ def check_security_group_rules(net_data, thresholds, allowed_protos, proto_num2n
                                 finding=result[0].title(), entry_id=entry_id, msg=result[1]))
 
 
+def check_security_group_rules_2(sg_acl_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports,
+                                 allowed_icmp):
+    """
+    execute checks against rules originating from security groups
+
+    NB: this check ignores rules with the deny action
+
+    Args:
+        allowed_icmp (dict): allowed ICMP types/codes
+        sg_acl_data (dict): contains security group acl data for some VPC
+        thresholds (dict):  check threshold data
+        allowed_protos (list): list of allowed protocols, by L3 protocol ID/number
+        proto_num2name (dict): flat dict mapping L3 protocol numbers to protocol names
+        proto_name2num (dict): flat dict mapping protocol names to L3 protocol numbers
+        risky_ports (dict): dict listing risky ports by L4 protocols
+
+    Returns (None):
+
+    """
+
+    for sg_id, sg_acls in sg_acl_data.iteritems():  # todo P3 collapse these by parameterizing the result text?
+
+
+        for dir in ['inacl', 'outacl']:
+
+            for entry in sg_acls[dir]:
+
+                entry_id = '/'.join([entry['sgid'], dir,
+                                     entry['protocol'], str(entry['ports'])])
+
+                results_list = []  # todo P3 move outside the "dir loop" to collect all results, then emit log msgs?
+
+                results_list.extend(chk_ipv4_range_size(entry, thresholds['ip_v4_min_prefix_len']))
+
+                results_list.extend(chk_port_range_size(entry, thresholds['port_range_max']))
+
+                results_list.extend(
+                    chk_allowed_protocols(entry, allowed_protos, proto_num2name, proto_name2num))
+
+                results_list.extend(chk_risky_ports(entry, risky_ports, allowed_icmp))
+
+                # todo P2 determine if need to handle differently
+                # todo P2 figure out a better way to identify a rule than subnet-id/sg-id
+
+                for result in results_list:
+                    log_rule_check_report.info('{finding} for rule {entry_id} {msg}'.format(
+                        finding=result[0].title(), entry_id=entry_id, msg=result[1]))
+
+
 def check_network_acl_rules(nacl_data, thresholds, allowed_protos, proto_num2name, proto_name2num, risky_ports,
                             allowed_icmp):
     """
@@ -2517,8 +2625,10 @@ def execute_rule_checks(networks):  # figure out what params to pass
 
         log_rule_check_report.info('Begin security-group rule checks for VPC {netid}'.format(netid=netid))
 
-        check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
-                                   risky_ports, allowed_icmp)
+        check_security_group_rules_2(net_data.graph['sec_group_rules'], thresholds, allowed_proto_list,
+                                     proto_num_to_name, proto_name_to_num, risky_ports, allowed_icmp)
+        # check_security_group_rules(net_data, thresholds, allowed_proto_list, proto_num_to_name, proto_name_to_num,
+        #                            risky_ports, allowed_icmp)
 
         log_rule_check_report.info('Begin NACL rule checks for VPC {netid}'.format(netid=netid))
 

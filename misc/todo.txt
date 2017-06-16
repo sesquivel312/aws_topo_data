@@ -1,5 +1,4 @@
-* collect inventory data in a separate list of dicts, collect instance list in subnet nodes (instance id only), other functions that need specific instance data would look it up in the instance "DB"
-* identify multi-homed hosts and/or subnets connected through instances
+* implement correct the sec-group:subnet and instance:subnet mapping
 * fix vpn edge handling - may only be missing b/c VPN is down
 * handling SG's and other (?) things in the src/dest spot of a rule
 * fix logging to handle multiple output thresholds (e.g. warning, info, etc.)
