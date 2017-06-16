@@ -571,7 +571,7 @@ def get_inst_root_vol_creation_time(instance):
     return 'Root device creation time not found'
 
 
-def get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, network):
+def get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, subnet_sec_groups, network):
     """
     gather data associated with the given instance and add it to the data model
     
@@ -585,7 +585,7 @@ def get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, netwo
             is providing NAT, only that it could, hence the data field name of 'poss_nat_inst' (i.e. possible)
         
     Args:
-        secgrp_set (set): set of security groups 
+        subnet_sec_groups (set): set of security groups associated w/a subnet = union of SGs of all attached instances
         acct_id (string):  AWS account ID (number) 
         subnet (boto3.Subnet): object containing subnet data used to populate data model 
         vpc (boto3.Vpc): VPC instance from which topology is collected
@@ -600,24 +600,30 @@ def get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, netwo
 
     root_create_time = get_inst_root_vol_creation_time(inst)
 
-    attribs = {'account_id': acct_id, 'ssh_key_name': inst.key_name,
-               'priv_ipv4': inst.private_ip_address, 'priv_hostname': inst.private_dns_name,
-               'platform': inst.platform, 'state': inst.state['Name'], 'tags': inst.tags,
-               'root_dev': inst.root_device_name, 'root_create_time': root_create_time,
-               'poss_nat_inst': not inst.source_dest_check}
-
-    network.add_node(inst.id, **attribs)
-
-    log_general.info('Added instance {} in subnet {} in vpc {}'.format(inst.id, subnet.id, vpc.id))
+    instance_sec_groups = []
 
     for sg in inst.security_groups:
 
-        secgrp_set.add(sg['GroupId'])
+        instance_sec_groups.append(sg['GroupId'])
+        subnet_sec_groups.add(sg['GroupId'])
 
         log_general.info('Added security-group {} to subnet {}'.format(sg['GroupId'], subnet.id))
 
+    interface_count = len(inst.network_interfaces_attribute)
 
-def get_secgroup_data(inst, subnet, secgrp_set):
+    instance_attribs = {'ssh_key_name': inst.key_name,
+               'priv_ipv4': inst.private_ip_address, 'priv_hostname': inst.private_dns_name,
+               'platform': inst.platform, 'state': inst.state['Name'], 'tags': inst.tags,
+               'root_dev': inst.root_device_name, 'root_create_time': root_create_time,
+               'nat_capable': not inst.source_dest_check, 'interface_count': interface_count,
+               'sec_groups': instance_sec_groups}
+
+    network.graph['instances'][inst.id] = instance_attribs
+
+    log_general.info('Added instance {} in subnet {} in vpc {}'.format(inst.id, subnet.id, vpc.id))
+
+
+def get_instance_sec_group_data(inst, subnet, secgrp_set):
     """
     gather security-group data associated with an instance (ultimately w/a subnet)
     
@@ -684,6 +690,8 @@ def get_subnets(networks, vpc, inventory_instances, session):
 
         acct_id = get_account_id(session)
 
+        networks[vpc.id].graph['instances'] = {}   # init storage for instance data -- at graph level
+
         for subnet in vpc.subnets.all():  # from boto3 vpc subnets collection
 
             get_subnet_data(subnet, vpc, networks[vpc.id])
@@ -691,6 +699,7 @@ def get_subnets(networks, vpc, inventory_instances, session):
             secgrp_set = set([])  # set of all security groups in this subnet
 
             for inst in subnet.instances.all():
+
                 get_instance_and_secgroup_data(inst, subnet, vpc, acct_id, secgrp_set, networks[vpc.id])
 
             networks[vpc.id].node[subnet.id]['sec_groups'] = secgrp_set
@@ -710,7 +719,7 @@ def get_subnets(networks, vpc, inventory_instances, session):
 
             for inst in subnet.instances.all():
 
-                get_secgroup_data(inst, vpc, secgrp_set)
+                get_instance_sec_group_data(inst, vpc, secgrp_set)
 
             networks[vpc.id].node[subnet.id]['sec_groups'] = secgrp_set
 
@@ -1407,13 +1416,12 @@ def build_nets(networks, vpcs, session=None, keep_instance_inventory=False):
         if not vpc_name:
             vpc_name = create_synthetic_object_name([vpc.id])
 
-        sts = session.client('sts')
+        acct_id = get_account_id(session)
 
-        acct_id = sts.get_caller_identity()['Account']
-
-        vpc_attribs = {'acct_id': acct_id, 'vpc_id': vpc.id, 'vpc_name': vpc_name, 'name': vpc_name, 'cidr': vpc.cidr_block,
-                       'isdefault': vpc.is_default, 'state': vpc.state, 'main_route_table': None,
-                       'dhcp_opt_id':vpc.dhcp_options_id, 'nacls': {}, 'tags': vpc.tags}  # collect node attributes
+        # collect node attributes
+        vpc_attribs = {'acct_id': acct_id, 'vpc_id': vpc.id, 'vpc_name': vpc_name, 'name': vpc_name,
+                       'cidr': vpc.cidr_block, 'isdefault': vpc.is_default, 'state': vpc.state,
+                       'main_route_table': None, 'dhcp_opt_id':vpc.dhcp_options_id, 'nacls': {}, 'tags': vpc.tags}
 
         network = networks[vpc.id] = nx.Graph(**vpc_attribs)
 
@@ -1597,7 +1605,7 @@ def get_rule_sec_groups(rule, security_groups):
 # todo refactor to take only sec_group_ID and sec_group data dict - b/c the permissions are already in the latter
 def get_access_rules(sec_group_id, permission_list, security_groups):  # helper func for build_subnet_rules
     """
-     return data associated with access rules in an aws boto3.ec2.security_group.ip_pmissions (and egreess)
+     return data associated with access rules in an aws boto3.ec2.security_group.ip_permissions (and egreess)
 
     NB: rule order does not matter in AWS SG ACL's b/c only permits are allowed
 
@@ -1650,6 +1658,7 @@ def build_sec_group_rule_dict(security_groups):
     rules = {}
 
     for sg in security_groups:
+
         rules[sg.id] = {}
 
         # get rules in more concise form & assign to new fields in sg_rules
@@ -1658,6 +1667,34 @@ def build_sec_group_rule_dict(security_groups):
         rules[sg.id]['outacl'] = get_access_rules(sg.id, sg.ip_permissions_egress, security_groups)
 
     return rules
+
+
+def get_sec_group_rules_by_vpc(networks, vpcs):
+    """
+    get security group rules from the VPC object
+
+    Args:
+        vpcs (boto3.Collection): colleciton of VPCs (iterable) 
+        networks (networkx.Graph): contains topology data for a given AWS VPC 
+
+    Returns: None
+
+    """
+    # todo P3 determine why helpers need security_groups list (seems redundant)
+
+    for vpc in vpcs:
+
+        rules = networks[vpc.id].graph['sec_group_rules'] = {}  # init storage location of rules
+        security_groups = vpc.security_groups.all()
+
+        for sg in security_groups:  # iterate over list of security groups
+
+            sg_rules = rules[sg.id] = {}
+
+            # get rules in more concise form & assign to new fields in sg_rules
+            sg_rules['inacl'] = get_access_rules(sg.id, sg.ip_permissions, security_groups)
+
+            sg_rules['outacl'] = get_access_rules(sg.id, sg.ip_permissions_egress, security_groups)
 
 
 def get_sec_group_rules_by_subnet(networks, security_groups):

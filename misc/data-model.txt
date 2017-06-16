@@ -8,7 +8,7 @@ vpcs = boto3 collection of vpcs
 
 sec_groups = boto3 collection of security groups
 
-sec_group_rule_dict = {
+sec_group_rule_dict = {  # this is collected by subnet - which is, in turn, collected by security group, in turn from instances and is NOT complete
   'sec_group_id': <sgid>,
   'inacl': [
     {
@@ -68,13 +68,29 @@ networkx.Graph:
          Key (string): key name,
          Value (string): value associated w/key
          }
-    instances (list): list of dicts of instance data
+    instances (dict): dict of dicts of instance data
       {
-        acct_id (str): aws account ID
-        id (str):
-        name (str): name from private_dns_name
+        <instance ID> (str):
+            {
+              ssh_key_name (str): name of SSH key used to create this instance, might indicate user that created the instance
+              priv_ipv4 (str): private IPv4 address - I assume assigned to the "primary" interface of this instance
+              priv_hostname (str): private DNS name
+              platform (str): 'Windows'|None
+              state (str): ending|running|shutting-down|terminated|stopping|stopped
+              tags (list): list of AWS tags (list of dicts)
+              root_dev (str): name of root device (e.g. /dev/sda1)
+              root_create_time (str): time root device was created as a string - this is the best proxy for instance create time available using EC2 API
+              nat_capable (bool): instance could provide nat services if this is true (can't if false) - this is the inverse of the SourceDestCheck flag
+              interface_count (int):
+              # interfaces (list): dicts containing interface data - see boto3 docs for ec2.instance.network_interfaces_attribute
+              sec_groups (list): list of security group ID's attached to this instance
+            }
+      }
+    sec_group_rules (dict): {
+      <secruity group ID> (str): {
 
       }
+    }
 
 
 

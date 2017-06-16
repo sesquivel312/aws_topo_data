@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-# todo P1 identify subnets that assign public IP's in renderings
+# todo P1 gather sec-group data from network interfaces and associate with subnets & instances
+# todo P2 identify subnets that assign public IP's in renderings
 # todo P2 edges from nat gateways to their subnet (necessary to see how they lead out of the VPC)
 # todo P2 list instances directly connected to public subnets
 # todo P2 ignore SG rules that allow all traffic w/in the SG? (default?)
@@ -30,7 +31,7 @@ import lib
 # globals
 # todo P2 move the log setup to a function in lib.py if possible
 # todo P3 adjust log configuration to include the time at execution
-# todo P3 check for IPV6 addresss availability @ VPC level
+# todo P3 check for IPV6 address availability @ VPC level
 
 TZ_DATA = lib.get_tz_data()
 APP_NAME = os.path.split(__file__)[1]
@@ -124,6 +125,8 @@ networks = {}
 
 # collect all the topo and related meta data
 lib.build_nets(networks, vpcs, aws_session, args.keep_instance_inventory)
+
+lib.get_sec_group_rules_by_vpc(networks, vpcs)
 
 lib.get_sec_group_rules_by_subnet(networks, sec_groups)
 
