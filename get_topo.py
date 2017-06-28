@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 # todo P1 gather sec-group data from network interfaces and associate with subnets & instances
+# todo P2 include object ID along w/name in visualizations
 # todo P2 identify subnets that assign public IP's in renderings
 # todo P2 edges from nat gateways to their subnet (necessary to see how they lead out of the VPC)
 # todo P2 list instances directly connected to public subnets
 # todo P2 ignore SG rules that allow all traffic w/in the SG? (default?)
+# todo P2 consider manual network assessment checks for inclusion - e.g. sensible routing
+# todo P3 (starkey) create a single inventory for all accounts, rather than one file per
 # todo P3 in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
 # todo P3 refactor node data so it's grouped by type - e.g. data = {'route_tables': {<datahere>} ...
 #   'inet_gws': {<datahere>}, ...} << this will allow me to access just those types of nodes, rather...
