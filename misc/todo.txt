@@ -1,4 +1,9 @@
-* implement correct the sec-group:subnet and instance:subnet mapping
+* create function to map account #'s to names and vice versa
+    * use key names of the form ew_awskey_<account_short_name>_(id|key) in OS environment
+    * use the <account_short_name> to extract the account names from the cred environment variable names
+    * use the API to get the corresponding account #'s - set the keys as needed from the data just collected and populate a dict
+    * run over the dict just created and add the reverse mapping (acct# to name)
+
 * fix vpn edge handling - may only be missing b/c VPN is down
 * handling SG's and other (?) things in the src/dest spot of a rule
 * fix logging to handle multiple output thresholds (e.g. warning, info, etc.)

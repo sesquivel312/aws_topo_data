@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 # todo P1 gather sec-group data from network interfaces and associate with subnets & instances
+# todo P1 gather pcx owner account numbers for both requester and accepter
 # todo P2 include object ID along w/name in visualizations
 # todo P2 identify subnets that assign public IP's in renderings
 # todo P2 edges from nat gateways to their subnet (necessary to see how they lead out of the VPC)
 # todo P2 list instances directly connected to public subnets
 # todo P2 ignore SG rules that allow all traffic w/in the SG? (default?)
 # todo P2 consider manual network assessment checks for inclusion - e.g. sensible routing
+# todo P2 include mapping of account numbers/names in data model, and where appropriate in output
+# todo P2 add VPC id and CIDR block to visualization "titles"
 # todo P3 (starkey) create a single inventory for all accounts, rather than one file per
 # todo P3 in graphs make size of subnets (circle?) reflect # of hosts (or maybe some other metric)
 # todo P3 refactor node data so it's grouped by type - e.g. data = {'route_tables': {<datahere>} ...
@@ -15,7 +18,7 @@
 #   accounts would be more interesting
 # todo P3 handle isolated nodes differently in visualizations, e.g. move to bottom, different color...
 #   at least add flag to indicate this
-# todo P3 determine if trusted advisor checks can be added using API, do so if yesl
+# todo P3 determine if trusted advisor checks can be added using API, do so if yes
 # todo P4 connect CIDR blocks w/meta data from: IPAM, WHOIS, ???
 
 import os
