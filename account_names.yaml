@@ -1,0 +1,6 @@
+---
+# this is an example account name list YAML file change the list below to the account
+# names used in your org
+-production
+-cat
+-uat
