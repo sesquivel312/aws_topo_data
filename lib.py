@@ -135,7 +135,7 @@ def get_tz_data():
 
 def load_yaml_file(file_name):
     """
-    load a yaml file into a dict and return it
+    load a yaml file into a python objecct and return it
 
     Args:
         file_name (string): name of file to load to dict
@@ -145,8 +145,35 @@ def load_yaml_file(file_name):
     """
 
     with open(file_name) as f:
-        pydict = yaml.load(f)
-        return pydict
+        py_object = yaml.load(f)
+        return py_object
+
+
+def load_accounts(yaml_file):
+    """
+    utility function to load account numbers to name mapping, and vice versa
+    
+    Function gets account names from the yaml_file (given as CLI argument) and then gathers the associated account
+    numbers from the OS environment variables using those names as keys - i.e. the environment variables must exist
+    before this function can run
+    
+    Args:
+        yaml_file (string): fully qualified name of YAML file containing account names as a list
+
+    Returns (dict): contains mappings for acct-names>acct #'s and vice versa
+
+    """
+    accts = load_yaml_file(yaml_file)
+    mapping = {name_to_num: {}, num_to_name: {}}
+
+    try:
+        for acct in accts:
+            num = mapping[name_to_num][acct] = os.environ.get(acct)
+            mapping[num_to_name][num] = acct
+        return mapping
+
+    except:
+        pass  # todo P3 improve exception handling
 
 
 def get_args():
