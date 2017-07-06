@@ -18,17 +18,15 @@ Example:
     
     <stuff> is some command, e.g. aws cli command get-session-token, that will output a JSON object containing the 
     temp creds to STDOUT, which is parsed by this script
-    
 
+    <id_string>, etc. are the output of the command (to STDOUT)
 
 """
+
 import json
 import sys
 
-token_json = sys.stdin.readlines()  # get the temp creds from STDIN
-
-token_dict = json.loads(token_json)
+token_dict = json.load(sys.stdin)  # get the temp creds from STDIN
 token_dict = token_dict['Credentials']  # just need the "guts"
-
 
 sys.stdout.write(' '.join([token_dict['AccessKeyId'], token_dict['SecretAccessKey'], token_dict['SessionToken']]))
